@@ -1,0 +1,6 @@
+{
+  "name": "IconEdit",
+  "description": "Visual workbench styled on Miuix for editing and exporting MIUI .mtz icon skins and Magisk zip modules.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
