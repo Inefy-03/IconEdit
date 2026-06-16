@@ -20,9 +20,13 @@ class GreetingScreenshotTest {
   @get:Rule val composeTestRule = createComposeRule()
 
   @Test
-  fun greeting_screenshot() {
-    composeTestRule.setContent { MyApplicationTheme { Greeting("Robolectric") } }
+  fun workbench_screenshot() {
+    composeTestRule.setContent { 
+      MyApplicationTheme { 
+        androidx.compose.material3.Text("IconEdit Visual Workbench") 
+      } 
+    }
 
-    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/greeting.png")
+    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/workbench.png")
   }
 }

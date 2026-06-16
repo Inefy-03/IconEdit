@@ -47,29 +47,31 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import top.yukonga.miuix.kmp.basic.Scaffold
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Checkbox
-import top.yukonga.miuix.kmp.basic.RadioButton
-import top.yukonga.miuix.kmp.basic.Switch
-import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.TabRow
-import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.NavigationBar
-import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.DropdownImpl
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.SearchBar
-import top.yukonga.miuix.kmp.basic.InputField
-import top.yukonga.miuix.kmp.overlay.OverlayListPopup
+import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
-import top.yukonga.miuix.kmp.basic.DropdownImpl
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
-import top.yukonga.miuix.kmp.basic.DropdownEntry
-import top.yukonga.miuix.kmp.basic.DropdownItem
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.basic.ArrowRight
+import top.yukonga.miuix.kmp.icon.extended.MoreCircle
+import top.yukonga.miuix.kmp.icon.extended.Notes
+import top.yukonga.miuix.kmp.icon.extended.Sort
+import top.yukonga.miuix.kmp.overlay.OverlayListPopup
+import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import java.io.File
 import java.io.FileOutputStream
@@ -92,10 +94,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        val isSystemGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-            this,
-            "android.permission.GET_INSTALLED_APPS"
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val isSystemGranted = isAppListPermissionGranted(this)
         viewModel.updatePermissionStateFromSystem(this, isSystemGranted)
         
         val prefs = getSharedPreferences("iconedit_prefs", android.content.Context.MODE_PRIVATE)
@@ -175,10 +174,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 LaunchedEffect(Unit) {
-                    val isSystemGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                        this@MainActivity,
-                        "android.permission.GET_INSTALLED_APPS"
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    val isSystemGranted = isAppListPermissionGranted(this@MainActivity)
                     viewModel.updatePermissionStateFromSystem(this@MainActivity, isSystemGranted)
                     
                     if (!isSystemGranted) {
@@ -818,6 +814,21 @@ class MainActivity : ComponentActivity() {
         }
         return result
     }
+
+    private fun isAppListPermissionGranted(context: android.content.Context): Boolean {
+        val oemGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            "android.permission.GET_INSTALLED_APPS"
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (oemGranted) return true
+
+        return try {
+            val packages = context.packageManager.getInstalledPackages(0)
+            packages.size > 1
+        } catch (e: Exception) {
+            false
+        }
+    }
 }
 
 @Composable
@@ -1130,7 +1141,7 @@ fun MyBottomBar(
     onTabSelected: (Int) -> Unit
 ) {
     val items = if (themeLoaded) {
-        listOf("主页", "图标页", "可视化编辑", "设置")
+        listOf("主页", "图标", "编辑", "设置")
     } else {
         listOf("主页", "设置")
     }
@@ -1188,7 +1199,7 @@ fun HomeScreen(
                                     imageVector = Icons.Default.MoreVert,
                                     contentDescription = "更多设置",
                                     tint = colors.onSurface,
-                                    modifier = Modifier.size(26.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                             OverlayListPopup(
@@ -1240,7 +1251,7 @@ fun HomeScreen(
                     .padding(top = 16.dp)
             ) {
                 SearchBar(
-                    modifier = Modifier.padding(horizontal = 6.dp),
+                    modifier = Modifier.padding(horizontal = 0.dp),
                     inputField = {
                         InputField(
                             query = homeSearchQuery,
@@ -1248,7 +1259,7 @@ fun HomeScreen(
                             onSearch = { searchExpanded = false },
                             expanded = searchExpanded,
                             onExpandedChange = { searchExpanded = it },
-                            label = "搜索应用"
+                            label = "搜索"
                         )
                     },
                     expanded = searchExpanded,
@@ -1256,7 +1267,7 @@ fun HomeScreen(
                     outsideEndAction = {
                         Text(
                             modifier = Modifier
-                                .padding(start = 12.dp, end = 12.dp)
+                                .padding(end = 16.dp)
                                 .clickable(
                                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                     indication = null
@@ -1271,7 +1282,7 @@ fun HomeScreen(
                 ) {
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 val filteredApps = if (hasAppListPermission) {
                     nativeApps.filter {
@@ -1296,13 +1307,13 @@ fun HomeScreen(
                             if (hasDeniedPermission) {
                                 Icon(
                                     Icons.Default.Info,
-                                    contentDescription = "未获取应用列表权限",
+                                    contentDescription = "未获得权限",
                                     tint = colors.primary,
                                     modifier = Modifier.size(72.dp)
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "未开启“读取应用列表”权限，主页默认不显示应用",
+                                    text = "未开启”获取应用列表”权限",
                                     color = colors.onSurface.copy(alpha=0.6f),
                                     fontSize = 14.sp,
                                     textAlign = TextAlign.Center,
@@ -1339,7 +1350,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .nestedScroll(scrollBehavior.nestedScrollConnection),
                         contentPadding = PaddingValues(top = 4.dp, bottom = 100.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(filteredApps, key = { it.packageName }) { icon ->
                             val isDark = top.yukonga.miuix.kmp.theme.LocalIsDarkTheme.current
@@ -1353,27 +1364,25 @@ fun HomeScreen(
                                 top.yukonga.miuix.kmp.basic.BasicComponent(
                                     title = icon.matchedAppName ?: icon.packageName.substringAfterLast("."),
                                     summary = icon.packageName,
+                                    insideMargin = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp),
                                     startAction = {
-                                        Box(
-                                            modifier = Modifier
-                                                .padding(end = 16.dp)
-                                                .size(36.dp)
-                                        ) {
-                                            if (icon.imageBitmap != null) {
-                                                Image(
-                                                    bitmap = icon.imageBitmap!!,
-                                                    contentDescription = icon.packageName,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Fit
-                                                )
-                                            } else {
-                                                Icon(
-                                                    Icons.Default.Apps,
-                                                    contentDescription = "默认",
-                                                    tint = colors.onSurface.copy(alpha=0.6f),
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            }
+                                        val iconModifier = Modifier
+                                            .padding(end = 4.dp)
+                                            .size(40.dp)
+                                        if (icon.imageBitmap != null) {
+                                            Image(
+                                                bitmap = icon.imageBitmap!!,
+                                                contentDescription = icon.packageName,
+                                                modifier = iconModifier,
+                                                contentScale = ContentScale.Fit
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.Apps,
+                                                contentDescription = "默认",
+                                                tint = colors.onSurface.copy(alpha=0.6f),
+                                                modifier = iconModifier
+                                            )
                                         }
                                     }
                                 )
@@ -1425,7 +1434,7 @@ fun IconPageScreen(
                                     imageVector = Icons.Default.MoreVert,
                                     contentDescription = "更多设置",
                                     tint = colors.onSurface,
-                                    modifier = Modifier.size(26.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                             OverlayListPopup(
@@ -1469,7 +1478,7 @@ fun IconPageScreen(
             ) {
                 top.yukonga.miuix.kmp.basic.Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "新增包图标",
+                    contentDescription = "新增图标",
                     tint = Color.White,
                     modifier = Modifier.size(30.dp)
                 )
@@ -1487,7 +1496,7 @@ fun IconPageScreen(
                     .padding(top = 16.dp)
             ) {
                 SearchBar(
-                    modifier = Modifier.padding(horizontal = 6.dp),
+                    modifier = Modifier.padding(horizontal = 0.dp),
                     inputField = {
                         InputField(
                             query = iconSearchQuery,
@@ -1495,7 +1504,7 @@ fun IconPageScreen(
                             onSearch = { searchExpanded = false },
                             expanded = searchExpanded,
                             onExpandedChange = { searchExpanded = it },
-                            label = "搜索图标"
+                            label = "搜索"
                         )
                     },
                     expanded = searchExpanded,
@@ -1503,7 +1512,7 @@ fun IconPageScreen(
                     outsideEndAction = {
                         Text(
                             modifier = Modifier
-                                .padding(start = 12.dp, end = 12.dp)
+                                .padding(end = 16.dp)
                                 .clickable(
                                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                     indication = null
@@ -1518,15 +1527,15 @@ fun IconPageScreen(
                 ) {
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 ArrowPreference(
-                    title = "进入可视化编辑与打包",
-                    summary = "自定义当前主题的名称、作者、设计师与壁纸等配置",
+                    title = "信息编辑",
+                    summary = "自定义主题的名称、作者、壁纸等配置",
                     onClick = onEnterVisualConfigRequested
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 val packPackageNames = icons.map { it.packageName }.toSet()
                 val fromPack = icons.filter { it.suffix.isEmpty() }.map { icon ->
@@ -1576,7 +1585,7 @@ fun IconPageScreen(
                             .fillMaxWidth()
                             .nestedScroll(scrollBehavior.nestedScrollConnection),
                         contentPadding = PaddingValues(top = 4.dp, bottom = 100.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(filteredIcons, key = { it.packageName }) { icon ->
                             val isUnadapted = !packPackageNames.contains(icon.packageName)
@@ -1592,27 +1601,25 @@ fun IconPageScreen(
                                 top.yukonga.miuix.kmp.basic.BasicComponent(
                                     title = if (showAppName) (icon.matchedAppName ?: icon.packageName.substringAfterLast(".")) else icon.packageName,
                                     summary = if (showAppName) icon.packageName else null,
+                                    insideMargin = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp),
                                     startAction = {
-                                        Box(
-                                            modifier = Modifier
-                                                .padding(end = 16.dp)
-                                                .size(36.dp)
-                                        ) {
-                                            if (icon.imageBitmap != null) {
-                                                Image(
-                                                    bitmap = icon.imageBitmap!!,
-                                                    contentDescription = icon.packageName,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                    contentScale = ContentScale.Fit
-                                                )
-                                            } else {
-                                                Icon(
-                                                    Icons.Default.Apps,
-                                                    contentDescription = "默认",
-                                                    tint = colors.onSurface.copy(alpha=0.6f),
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            }
+                                        val iconModifier = Modifier
+                                            .padding(end = 4.dp)
+                                            .size(40.dp)
+                                        if (icon.imageBitmap != null) {
+                                            Image(
+                                                bitmap = icon.imageBitmap!!,
+                                                contentDescription = icon.packageName,
+                                                modifier = iconModifier,
+                                                contentScale = ContentScale.Fit
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.Apps,
+                                                contentDescription = "默认",
+                                                tint = colors.onSurface.copy(alpha=0.6f),
+                                                modifier = iconModifier
+                                            )
                                         }
                                     },
                                     endActions = {
@@ -1664,8 +1671,8 @@ fun VisualConfigScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = "可视化编辑",
-                largeTitle = "可视化编辑",
+                title = "信息编辑",
+                largeTitle = "信息编辑",
                 scrollBehavior = scrollBehavior
             )
         },
@@ -1684,7 +1691,7 @@ fun VisualConfigScreen(
             ) {
                 // Topic card 1: Package Type (MTZ vs Magisk Module)
                 Text(
-                    text = "主题打包包体类型",
+                    text = "打包类型",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     color = colors.onSurface,
@@ -1775,7 +1782,7 @@ fun VisualConfigScreen(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // Topic card 2: Metadata configurator Form
-                Text("主题及模组描述信息", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.onSurface, modifier = Modifier.padding(bottom = 8.dp))
+                Text("编辑信息", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.onSurface, modifier = Modifier.padding(bottom = 8.dp))
 
                 top.yukonga.miuix.kmp.basic.Surface(
                     modifier = Modifier
@@ -1791,7 +1798,7 @@ fun VisualConfigScreen(
                                 viewModel.updateMetadata { meta -> meta.copy(title = it) }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            label = "方案标题 (Theme Title)"
+                            label = "主题名"
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         TextField(
@@ -1801,7 +1808,7 @@ fun VisualConfigScreen(
                                 viewModel.updateMetadata { meta -> meta.copy(author = it) }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            label = "作者姓名 (Author)"
+                            label = "作者"
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         TextField(
@@ -1811,7 +1818,7 @@ fun VisualConfigScreen(
                                 viewModel.updateMetadata { meta -> meta.copy(designer = it) }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            label = "设计师 (Designer)"
+                            label = "设计师"
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         TextField(
@@ -1821,7 +1828,7 @@ fun VisualConfigScreen(
                                 viewModel.updateMetadata { meta -> meta.copy(version = it) }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            label = "版本号 (Version)"
+                            label = "版本号"
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         TextField(
@@ -1831,7 +1838,7 @@ fun VisualConfigScreen(
                                 viewModel.updateMetadata { meta -> meta.copy(description = it) }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            label = "版本介绍与描述 (Ui Description)"
+                            label = "版本介绍与描述"
                         )
                     }
                 }
@@ -1839,7 +1846,7 @@ fun VisualConfigScreen(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // Topic card 3: Wallpaper / Previews custom selector card row
-                Text("壁纸与包预览图 (点击卡片替换)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.onSurface, modifier = Modifier.padding(bottom = 8.dp))
+                Text("壁纸与预览图", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.onSurface, modifier = Modifier.padding(bottom = 8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
