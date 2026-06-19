@@ -23,9 +23,12 @@ dependencyResolutionManagement {
     maven { url = uri("https://s01.oss.sonatype.org/content/repositories/releases/") }
     maven { url = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/") }
     maven { url = uri("https://s01.oss.sonatype.org/content/groups/staging/") }
+    maven { url = uri("https://s01.oss.sonatype.org/content/groups/public/") }
     maven { url = uri("https://oss.sonatype.org/content/repositories/releases/") }
     maven { url = uri("https://oss.sonatype.org/content/repositories/snapshots/") }
     maven { url = uri("https://oss.sonatype.org/content/groups/staging/") }
+    maven { url = uri("https://oss.sonatype.org/content/groups/public/") }
+    maven { url = uri("https://central.sonatype.com/repository/releases/") }
     maven { url = uri("https://jitpack.io") }
   }
 }

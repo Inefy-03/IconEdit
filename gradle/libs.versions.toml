@@ -37,7 +37,7 @@ datastorePreferences = "1.1.7"
 robolectric = "4.16.1"
 roborazzi = "1.59.0"
 firebaseBom = "34.12.0"
-miuix = "0.8.8"
+miuix = "0.9.1"
 secretsGradlePlugin = "2.0.1"
 
 [libraries]
@@ -88,7 +88,9 @@ roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi
 roborazzi-junit-rule = { group = "io.github.takahirom.roborazzi", name = "roborazzi-junit-rule", version.ref = "roborazzi" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
-miuix = { group = "top.yukonga.miuix.kmp", name = "miuix-android", version.ref = "miuix" }
+miuix-core = { group = "top.yukonga.miuix.kmp", name = "miuix-core", version.ref = "miuix" }
+miuix-ui = { group = "top.yukonga.miuix.kmp", name = "miuix-ui", version.ref = "miuix" }
+miuix-preference = { group = "top.yukonga.miuix.kmp", name = "miuix-preference", version.ref = "miuix" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

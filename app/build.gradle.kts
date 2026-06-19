@@ -8,12 +8,12 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 37
 
   defaultConfig {
     applicationId = "com.bocchi.iconedit"
     minSdk = 26
-    targetSdk = 36
+    targetSdk = 37
     versionCode = 1
     versionName = "1.0"
 
@@ -68,7 +68,9 @@ secrets {
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
-  implementation(libs.miuix)
+  implementation(libs.miuix.core)
+  implementation(libs.miuix.ui)
+  implementation(libs.miuix.preference)
   implementation("org.jetbrains.androidx.navigationevent:navigationevent-compose:1.0.1")
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))

@@ -12,6 +12,8 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import java.io.InputStream
 
+import androidx.compose.ui.graphics.asImageBitmap
+
 class ThemeRepository(private val context: Context) {
 
     private var installedAppsMap = mapOf<String, String>()
@@ -21,8 +23,8 @@ class ThemeRepository(private val context: Context) {
     /**
      * Load installed apps asynchronously to avoid ANR.
      */
-    suspend fun loadInstalledApps(): List<IconItem> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        if (!isAppsLoaded) {
+    suspend fun loadInstalledApps(forceRefresh: Boolean = false): List<IconItem> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (!isAppsLoaded || forceRefresh) {
             try {
                 val pm = context.packageManager
                 val packages = pm.getInstalledPackages(0)
@@ -50,22 +52,11 @@ class ThemeRepository(private val context: Context) {
                         }
                         val label = appInfo.loadLabel(pm).toString()
                         
-                        val iconDrawable = appInfo.loadIcon(pm)
-                        val w = iconDrawable.intrinsicWidth.coerceAtLeast(100)
-                        val h = iconDrawable.intrinsicHeight.coerceAtLeast(100)
-                        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                        val canvas = Canvas(bitmap)
-                        iconDrawable.setBounds(0, 0, canvas.width, canvas.height)
-                        iconDrawable.draw(canvas)
-                        
-                        val bos = ByteArrayOutputStream()
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, bos)
-                        
                         apps.add(
                             IconItem(
                                 packageName = pName,
                                 suffix = if (isSystem) "system" else "user",
-                                imageBytes = bos.toByteArray(),
+                                imageBytes = null, // Defer heavy bitmap loading to UI layer 
                                 matchedAppName = label
                             )
                         )
@@ -86,6 +77,26 @@ class ThemeRepository(private val context: Context) {
 
     fun getInstalledAppName(packageName: String): String? {
         return installedAppsMap[packageName]
+    }
+
+    /**
+     * Helper to load an individual app's icon bitmap directly on demand
+     */
+    fun loadAppIconBitmap(packageName: String): androidx.compose.ui.graphics.ImageBitmap? {
+        return try {
+            val pm = context.packageManager
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            val iconDrawable = appInfo.loadIcon(pm)
+            val w = iconDrawable.intrinsicWidth.coerceAtLeast(100)
+            val h = iconDrawable.intrinsicHeight.coerceAtLeast(100)
+            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            iconDrawable.setBounds(0, 0, canvas.width, canvas.height)
+            iconDrawable.draw(canvas)
+            bitmap.asImageBitmap()
+        } catch (e: Exception) {
+            null
+        }
     }
 
     /**
@@ -554,6 +565,198 @@ class ThemeRepository(private val context: Context) {
 
         val bos = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, bos)
+        return bos.toByteArray()
+    }
+
+    /**
+     * Repacks the original MTZ using modified icons, metadata (description.xml), wallpaper, and previews.
+     */
+    fun exportMtzWithTemplate(
+        originalMtzBytes: ByteArray,
+        metadata: ThemeMetadata,
+        icons: List<IconItem>,
+        outputFile: java.io.File,
+        wallpaper: ByteArray?,
+        previewLauncher: ByteArray?,
+        previewLockscreen: ByteArray?
+    ): java.io.File {
+        val fileOut = java.io.FileOutputStream(outputFile)
+        val zos = ZipOutputStream(fileOut)
+        
+        val zipIn = ZipInputStream(ByteArrayInputStream(originalMtzBytes))
+        var entry = zipIn.getNextEntry()
+        val writtenEntries = mutableSetOf<String>()
+        
+        while (entry != null) {
+            val name = entry.name
+            val entryBytes: ByteArray
+            
+            when {
+                name == "description.xml" -> {
+                    entryBytes = metadata.toXmlString().toByteArray(Charsets.UTF_8)
+                }
+                name == "wallpaper/default_wallpaper.jpg" || name.endsWith("default_wallpaper.jpg") -> {
+                    entryBytes = wallpaper ?: zipIn.readBytes()
+                }
+                name == "preview/preview_launcher_0.jpg" || name.endsWith("preview_launcher_0.jpg") -> {
+                    entryBytes = previewLauncher ?: zipIn.readBytes()
+                }
+                name == "preview/preview_lockscreen_0.jpg" || name.endsWith("preview_lockscreen_0.jpg") -> {
+                    entryBytes = previewLockscreen ?: zipIn.readBytes()
+                }
+                name == "icons" || name.endsWith("/icons") -> {
+                    val existingInnerZipBytes = zipIn.readBytes()
+                    val mergedInnerZipBytes = mergeInnerIconsZip(existingInnerZipBytes, icons)
+                    entryBytes = mergedInnerZipBytes
+                }
+                else -> {
+                    entryBytes = zipIn.readBytes()
+                }
+            }
+            
+            zos.putNextEntry(ZipEntry(name))
+            zos.write(entryBytes)
+            zos.closeEntry()
+            writtenEntries.add(name)
+            
+            entry = zipIn.getNextEntry()
+        }
+        zipIn.close()
+        
+        if (!writtenEntries.contains("wallpaper/default_wallpaper.jpg") && wallpaper != null) {
+            zos.putNextEntry(ZipEntry("wallpaper/default_wallpaper.jpg"))
+            zos.write(wallpaper)
+            zos.closeEntry()
+        }
+        if (!writtenEntries.contains("preview/preview_launcher_0.jpg") && previewLauncher != null) {
+            zos.putNextEntry(ZipEntry("preview/preview_launcher_0.jpg"))
+            zos.write(previewLauncher)
+            zos.closeEntry()
+        }
+        if (!writtenEntries.contains("preview/preview_lockscreen_0.jpg") && previewLockscreen != null) {
+            zos.putNextEntry(ZipEntry("preview/preview_lockscreen_0.jpg"))
+            zos.write(previewLockscreen)
+            zos.closeEntry()
+        }
+        if (!writtenEntries.contains("icons")) {
+            zos.putNextEntry(ZipEntry("icons"))
+            zos.write(createInnerIconsZip(icons))
+            zos.closeEntry()
+        }
+        
+        zos.finish()
+        zos.close()
+        return outputFile
+    }
+
+    /**
+     * Repacks the original Magisk ZIP using modified icons, module.prop, customize.sh.
+     */
+    fun exportMagiskZipWithTemplate(
+        originalZipBytes: ByteArray,
+        metadata: ThemeMetadata,
+        icons: List<IconItem>,
+        moduleId: String = "custom_icons",
+        outputFile: java.io.File,
+        customizePrintLines: String = ""
+    ): java.io.File {
+        val fileOut = java.io.FileOutputStream(outputFile)
+        val zos = ZipOutputStream(fileOut)
+        
+        val zipIn = ZipInputStream(ByteArrayInputStream(originalZipBytes))
+        var entry = zipIn.getNextEntry()
+        val writtenEntries = mutableSetOf<String>()
+        
+        while (entry != null) {
+            val name = entry.name
+            val entryBytes: ByteArray
+            
+            when {
+                name == "module.prop" || name.endsWith("/module.prop") -> {
+                    entryBytes = metadata.toPropString(moduleId).toByteArray(Charsets.UTF_8)
+                }
+                name == "customize.sh" || name.endsWith("/customize.sh") -> {
+                    entryBytes = if (customizePrintLines.isNotEmpty()) {
+                        customizePrintLines.toByteArray(Charsets.UTF_8)
+                    } else {
+                        zipIn.readBytes()
+                    }
+                }
+                name == "system/media/theme/default/icons" || name.endsWith("/system/media/theme/default/icons") || name == "icons" || name.endsWith("/icons") -> {
+                    val existingInnerZipBytes = zipIn.readBytes()
+                    val mergedInnerZipBytes = mergeInnerIconsZip(existingInnerZipBytes, icons)
+                    entryBytes = mergedInnerZipBytes
+                }
+                else -> {
+                    entryBytes = zipIn.readBytes()
+                }
+            }
+            
+            zos.putNextEntry(ZipEntry(name))
+            zos.write(entryBytes)
+            zos.closeEntry()
+            writtenEntries.add(name)
+            
+            entry = zipIn.getNextEntry()
+        }
+        zipIn.close()
+        
+        if (!writtenEntries.contains("module.prop")) {
+            zos.putNextEntry(ZipEntry("module.prop"))
+            zos.write(metadata.toPropString(moduleId).toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+        }
+        if (!writtenEntries.contains("system/media/theme/default/icons") && !writtenEntries.contains("icons")) {
+            zos.putNextEntry(ZipEntry("system/media/theme/default/icons"))
+            zos.write(createInnerIconsZip(icons))
+            zos.closeEntry()
+        }
+        
+        zos.finish()
+        zos.close()
+        return outputFile
+    }
+
+    private fun mergeInnerIconsZip(originalIconsZipBytes: ByteArray, updatedIcons: List<IconItem>): ByteArray {
+        val bos = ByteArrayOutputStream()
+        val zos = ZipOutputStream(bos)
+        
+        val zipIn = ZipInputStream(ByteArrayInputStream(originalIconsZipBytes))
+        var entry = zipIn.getNextEntry()
+        
+        val writtenPaths = mutableSetOf<String>()
+        val updatedMap = updatedIcons.associateBy { "res/drawable-xxhdpi/${it.packageName}${it.suffix}.png" }
+        
+        while (entry != null) {
+            val name = entry.name
+            val entryBytes: ByteArray
+            
+            if (updatedMap.containsKey(name)) {
+                entryBytes = updatedMap[name]!!.imageBytes ?: ByteArray(0)
+            } else {
+                entryBytes = zipIn.readBytes()
+            }
+            
+            zos.putNextEntry(ZipEntry(name))
+            zos.write(entryBytes)
+            zos.closeEntry()
+            writtenPaths.add(name)
+            
+            entry = zipIn.getNextEntry()
+        }
+        zipIn.close()
+        
+        for (updatedIcon in updatedIcons) {
+            val entryName = "res/drawable-xxhdpi/${updatedIcon.packageName}${updatedIcon.suffix}.png"
+            if (!writtenPaths.contains(entryName) && updatedIcon.imageBytes != null) {
+                zos.putNextEntry(ZipEntry(entryName))
+                zos.write(updatedIcon.imageBytes!!)
+                zos.closeEntry()
+            }
+        }
+        
+        zos.finish()
+        zos.close()
         return bos.toByteArray()
     }
 }

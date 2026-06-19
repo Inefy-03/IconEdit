@@ -57,16 +57,17 @@ data class LoadedThemeResult(
 data class IconItem(
     val packageName: String,
     val suffix: String = "", // e.g., "_1", "_2"
-    var imageBytes: ByteArray,
-    val matchedAppName: String? = null
+    var imageBytes: ByteArray? = null,
+    val matchedAppName: String? = null,
+    var imageBitmap: ImageBitmap? = null
 ) {
-    // Lazy computed Compose image bitmap
-    val imageBitmap: ImageBitmap? by lazy {
-        try {
-            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-            bitmap?.asImageBitmap()
-        } catch (e: Exception) {
-            null
+    init {
+        if (imageBitmap == null && imageBytes != null) {
+            try {
+                val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes!!.size)
+                imageBitmap = bitmap?.asImageBitmap()
+            } catch (e: Exception) {
+            }
         }
     }
 

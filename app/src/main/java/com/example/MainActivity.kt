@@ -44,11 +44,22 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import top.yukonga.miuix.kmp.basic.Scaffold
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Checkbox
+import top.yukonga.miuix.kmp.basic.RadioButton
+import top.yukonga.miuix.kmp.basic.Switch
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.TabRow
+import androidx.compose.material3.Tab
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.SearchBar
+import top.yukonga.miuix.kmp.basic.InputField
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
@@ -62,13 +73,11 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
-import top.yukonga.miuix.kmp.blur.layerBackdrop
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.basic.ArrowRight
-import top.yukonga.miuix.kmp.icon.extended.MoreCircle
-import top.yukonga.miuix.kmp.icon.extended.Notes
-import top.yukonga.miuix.kmp.icon.extended.Sort
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import top.yukonga.miuix.kmp.basic.DropdownEntry
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
@@ -159,6 +168,7 @@ class MainActivity : ComponentActivity() {
                 // State holding for icon override targeting
                 var pendingReplaceIcon by remember { mutableStateOf<IconItem?>(null) }
                 var currentSubPage by remember { mutableStateOf("home") }
+                var secondaryScreen by remember { mutableStateOf<String?>(null) }
                 var showMenuDialog by remember { mutableStateOf(false) }
                 val scrollBehavior = top.yukonga.miuix.kmp.basic.MiuixScrollBehavior()
                 // State for new custom icon creator
@@ -175,17 +185,10 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     val isSystemGranted = isAppListPermissionGranted(this@MainActivity)
-                    viewModel.updatePermissionStateFromSystem(this@MainActivity, isSystemGranted)
+                    viewModel.updatePermissionStateFromSystem(this@MainActivity, isSystemGranted, forceRefresh = true)
                     
                     if (!isSystemGranted) {
-                        val hasPrompted = prefs.getBoolean("has_prompted_once", false)
-                        val canAskSystem = !hasPrompted || androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(this@MainActivity, "android.permission.GET_INSTALLED_APPS")
-                        if (canAskSystem) {
-                            viewModel.setDeniedState(false)
-                            requestPermissionLauncher.launch("android.permission.GET_INSTALLED_APPS")
-                        } else {
-                            viewModel.setDeniedState(true)
-                        }
+                        viewModel.setDeniedState(true) // Start out denying so user has to explicitly click "Grant Permission"
                     } else {
                         viewModel.setDeniedState(false)
                     }
@@ -194,18 +197,25 @@ class MainActivity : ComponentActivity() {
                 var showExitConfirmDialog by remember { mutableStateOf(false) }
 
                 LaunchedEffect(themeLoaded) {
-                    if (themeLoaded) {
-                        currentTab = 1
-                    } else {
-                        currentTab = 0
-                    }
+                    currentTab = 0
+                    secondaryScreen = null
                 }
 
-                BackHandler(enabled = themeLoaded) {
-                    if (currentTab != 0) {
-                        currentTab = 0
+                BackHandler(enabled = true) {
+                    if (secondaryScreen != null) {
+                        secondaryScreen = null
+                    } else if (themeLoaded) {
+                        if (currentTab != 0) {
+                            currentTab = 0
+                        } else {
+                            showExitConfirmDialog = true
+                        }
                     } else {
-                        showExitConfirmDialog = true
+                        if (currentTab != 0) {
+                            currentTab = 0
+                        } else {
+                            finish()
+                        }
                     }
                 }
 
@@ -358,8 +368,24 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                Box(modifier = Modifier.fillMaxSize()) {
-                    if (!themeLoaded) {
+                top.yukonga.miuix.kmp.basic.Scaffold(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        if (secondaryScreen == "visual_config") {
+                        VisualConfigScreen(
+                            metadata = metadata,
+                            projectType = projectType,
+                            viewModel = viewModel,
+                            onBottomBar = {},
+                            onPickWallpaper = { pickWallpaperLauncher.launch("image/*") },
+                            onPickPreviewL = { pickPreviewLauncherLauncher.launch("image/*") },
+                            onPickPreviewS = { pickPreviewLockscreenLauncher.launch("image/*") },
+                            onExport = { defaultName ->
+                                exportDocumentLauncher.launch(defaultName)
+                            },
+                            context = this@MainActivity,
+                            onBack = { secondaryScreen = null }
+                        )
+                    } else if (!themeLoaded) {
                         when (currentTab) {
                             0 -> {
                                 HomeScreen(
@@ -404,38 +430,6 @@ class MainActivity : ComponentActivity() {
                     } else {
                         when (currentTab) {
                             0 -> {
-                                HomeScreen(
-                                    nativeApps = nativeApps,
-                                    showSystemApps = showSystemApps,
-                                    hasAppListPermission = hasAppListPermission,
-                                    onShowPermissionRequest = {
-                                        val hasPrompted = prefs.getBoolean("has_prompted_once", false)
-                                        val canAskSystem = !hasPrompted || androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(this@MainActivity, "android.permission.GET_INSTALLED_APPS")
-                                        if (canAskSystem) {
-                                            requestPermissionLauncher.launch("android.permission.GET_INSTALLED_APPS")
-                                        } else {
-                                            try {
-                                                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                    data = Uri.fromParts("package", packageName, null)
-                                                }
-                                                startActivity(intent)
-                                            } catch (e: Exception) {
-                                                Toast.makeText(this@MainActivity, "请去设置页面手动开启权限", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    },
-                                    onImportRequested = {
-                                        if (projectType == ProjectType.MTZ) {
-                                            openFileLauncher.launch("*/*")
-                                        } else {
-                                            openFileLauncher.launch("application/zip")
-                                        }
-                                    },
-                                    onBottomBar = bottomBar,
-                                    viewModel = viewModel
-                                )
-                            }
-                            1 -> {
                                 IconPageScreen(
                                     icons = icons,
                                     nativeApps = nativeApps,
@@ -452,27 +446,12 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onBottomBar = bottomBar,
                                     onEnterVisualConfigRequested = {
-                                        currentTab = 2
+                                        secondaryScreen = "visual_config"
                                     },
                                     viewModel = viewModel
                                 )
                             }
-                            2 -> {
-                                VisualConfigScreen(
-                                    metadata = metadata,
-                                    projectType = projectType,
-                                    viewModel = viewModel,
-                                    onBottomBar = bottomBar,
-                                    onPickWallpaper = { pickWallpaperLauncher.launch("image/*") },
-                                    onPickPreviewL = { pickPreviewLauncherLauncher.launch("image/*") },
-                                    onPickPreviewS = { pickPreviewLockscreenLauncher.launch("image/*") },
-                                    onExport = { defaultName ->
-                                        exportDocumentLauncher.launch(defaultName)
-                                    },
-                                    context = this@MainActivity
-                                )
-                            }
-                            3 -> {
+                            1 -> {
                                 SettingsScreen(
                                     themeMode = themeMode,
                                     onThemeModeChange = { viewModel.setThemeMode(it) },
@@ -483,14 +462,14 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // 5. Interactive Floating Selected Icon Workbench Detail Overlay Sheet
-                    if (selectedIcon != null) {
-                        val icon = selectedIcon!!
-                        val alternatives = viewModel.getAlternativesFor(icon.packageName)
-                        WindowBottomSheet(
-                            show = selectedIcon != null,
-                            title = "编辑样式",
-                            onDismissRequest = { viewModel.selectIcon(null) }
-                        ) {
+                    WindowBottomSheet(
+                        show = selectedIcon != null,
+                        title = "编辑样式",
+                        onDismissRequest = { viewModel.selectIcon(null) }
+                    ) {
+                        val icon = selectedIcon
+                        if (icon != null) {
+                            val alternatives = viewModel.getAlternativesFor(icon.packageName)
                             val dismiss = top.yukonga.miuix.kmp.theme.LocalDismissState.current
                             Column(
                                 modifier = Modifier
@@ -510,8 +489,8 @@ class MainActivity : ComponentActivity() {
                                         // Large Icon Display
                                         Box(
                                             modifier = Modifier
-                                                .size(64.dp)
-                                                .clip(RoundedCornerShape(16.dp))
+                                                .size(96.dp)
+                                                .clip(RoundedCornerShape(0.dp))
                                                 .background(colors.surfaceVariant),
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -530,14 +509,14 @@ class MainActivity : ComponentActivity() {
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column {
                                             Text(
-                                                text = icon.matchedAppName ?: "第三方便捷应用",
+                                                text = icon.matchedAppName ?: "APP",
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp,
+                                                fontSize = 16.sp,
                                                 color = colors.onSurface
                                             )
                                             Text(
                                                 text = icon.packageName,
-                                                fontSize = 11.sp,
+                                                fontSize = 12.sp,
                                                 color = colors.onSurface.copy(alpha=0.6f),
                                                 maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis
@@ -562,7 +541,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(24.dp))
 
                                 // Actions Row
                                 Row(
@@ -570,7 +549,7 @@ class MainActivity : ComponentActivity() {
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     // Option 1: Replace / Upload Image Override
-                                    Button(
+                                    top.yukonga.miuix.kmp.basic.Button(
                                         onClick = {
                                             pendingReplaceIcon = icon
                                             dismiss?.invoke()
@@ -579,14 +558,14 @@ class MainActivity : ComponentActivity() {
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
+                                            top.yukonga.miuix.kmp.basic.Icon(
                                                 Icons.Default.Image,
                                                 contentDescription = "导入替代图",
                                                 tint = colors.onPrimary,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("导入图片覆盖", fontSize = 12.sp, color = colors.onPrimary)
+                                            top.yukonga.miuix.kmp.basic.Text("导入图片覆盖", fontSize = 12.sp, color = colors.onPrimary)
                                         }
                                     }
                                 }
@@ -594,7 +573,7 @@ class MainActivity : ComponentActivity() {
                                 // Option 2: Choose Alternatives if any exist in package list
                                 if (alternatives.isNotEmpty()) {
                                     Text(
-                                        text = "可用多样式版本图标:",
+                                        text = "可用样式:",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = colors.onSurface,
@@ -629,14 +608,13 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // 7. Custom Package Selector & Creator Dialog Modal
-                    if (showCustomIconCreator) {
-                        WindowBottomSheet(
-                            show = showCustomIconCreator,
-                            title = "手动选择包名导入新图标",
-                            onDismissRequest = { viewModel.setCustomIconCreatorVisible(false) }
-                        ) {
-                            val dismiss = top.yukonga.miuix.kmp.theme.LocalDismissState.current
-                            Column(
+                    WindowBottomSheet(
+                        show = showCustomIconCreator,
+                        title = "手动选择包名导入新图标",
+                        onDismissRequest = { viewModel.setCustomIconCreatorVisible(false) }
+                    ) {
+                        val dismiss = top.yukonga.miuix.kmp.theme.LocalDismissState.current
+                        Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 18.dp, vertical = 8.dp),
@@ -646,7 +624,7 @@ class MainActivity : ComponentActivity() {
                                     value = tempCreatorPackageName,
                                     onValueChange = { tempCreatorPackageName = it.trim() },
                                     modifier = Modifier.fillMaxWidth(),
-                                    label = "输入包名 (例如 com.example.app)"
+                                    label = "输入包名"
                                 )
 
                                 Spacer(modifier = Modifier.height(16.dp))
@@ -655,7 +633,7 @@ class MainActivity : ComponentActivity() {
                                 Box(
                                     modifier = Modifier
                                         .size(96.dp)
-                                        .clip(RoundedCornerShape(16.dp))
+                                        .clip(RoundedCornerShape(0.dp))
                                         .background(colors.surfaceVariant)
                                         .clickable { pickImageForCreatorLauncher.launch("image/*") },
                                     contentAlignment = Alignment.Center
@@ -684,23 +662,22 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(18.dp))
+                                Spacer(modifier = Modifier.height(24.dp))
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.End
                                 ) {
-                                    TextButton(
+                                    top.yukonga.miuix.kmp.basic.TextButton(
+                                        "取消",
                                         onClick = {
                                             dismiss?.invoke()
                                             tempCreatorPackageName = ""
                                             tempCreatorImageBytes = null
                                         }
-                                    ) {
-                                        Text("取消")
-                                    }
+                                    )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Button(
+                                    top.yukonga.miuix.kmp.basic.Button(
                                         onClick = {
                                             val pName = tempCreatorPackageName
                                             val bytes = tempCreatorImageBytes
@@ -714,26 +691,24 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                     ) {
-                                        Text("导入", color = Color.White)
+                                        top.yukonga.miuix.kmp.basic.Text("导入", color = Color.White)
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
                             }
                         }
-                    }
 
                     // 7b. Exit theme confirmation dialog
-                    if (showExitConfirmDialog) {
-                        OverlayDialog(
-                            title = "确认返回",
-                            show = showExitConfirmDialog,
-                            onDismissRequest = { showExitConfirmDialog = false }
-                        ) {
+                    OverlayDialog(
+                        title = "确认返回",
+                        show = showExitConfirmDialog,
+                        onDismissRequest = { showExitConfirmDialog = false }
+                    ) {
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
                             ) {
                                 Text(
-                                    text = "确认要放弃当前图标列表并回到应用列表主页吗？",
+                                    text = "确认要放弃当前编辑并回到主页吗？",
                                     fontSize = 14.sp,
                                     color = colors.onSurface.copy(alpha = 0.8f)
                                 )
@@ -742,28 +717,27 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.End
                                 ) {
-                                    TextButton(
+                                    top.yukonga.miuix.kmp.basic.TextButton(
+                                        "取消",
                                         onClick = { showExitConfirmDialog = false }
-                                    ) {
-                                        Text("取消", color = colors.onSurface.copy(alpha = 0.6f))
-                                    }
+                                    )
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Button(
+                                    top.yukonga.miuix.kmp.basic.Button(
                                         onClick = {
                                             showExitConfirmDialog = false
                                             viewModel.resetTheme()
                                         }
                                     ) {
-                                        Text("确认", color = Color.White)
+                                        top.yukonga.miuix.kmp.basic.Text("确认", color = Color.White)
                                     }
                                 }
                             }
                         }
-                    }
 
                     // Custom self-drawn permission prompt was removed to utilize Native System Permission Popup
                     }
                     }
+                }
                 }
                 }
             }
@@ -816,18 +790,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isAppListPermissionGranted(context: android.content.Context): Boolean {
-        val oemGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+        return androidx.core.content.ContextCompat.checkSelfPermission(
             context,
             "android.permission.GET_INSTALLED_APPS"
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (oemGranted) return true
-
-        return try {
-            val packages = context.packageManager.getInstalledPackages(0)
-            packages.size > 1
-        } catch (e: Exception) {
-            false
-        }
     }
 }
 
@@ -979,7 +945,6 @@ fun OverlayDialog(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WindowBottomSheet(
     show: Boolean,
@@ -987,29 +952,13 @@ fun WindowBottomSheet(
     onDismissRequest: () -> Unit,
     content: @Composable () -> Unit
 ) {
-    if (show) {
-        ModalBottomSheet(
-            onDismissRequest = onDismissRequest,
-            containerColor = MiuixTheme.colorScheme.surface,
-            dragHandle = { BottomSheetDefaults.DragHandle(color = MiuixTheme.colorScheme.onSurface.copy(alpha=0.5f)) }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 24.dp)
-            ) {
-                Text(
-                    text = title,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                content()
-            }
-        }
-    }
+    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
+        show = show,
+        onDismissRequest = onDismissRequest,
+        title = title,
+        cornerRadius = 28.dp,
+        content = content
+    )
 }
 
 @Composable
@@ -1141,12 +1090,12 @@ fun MyBottomBar(
     onTabSelected: (Int) -> Unit
 ) {
     val items = if (themeLoaded) {
-        listOf("主页", "图标", "编辑", "设置")
+        listOf("项目", "设置")
     } else {
         listOf("主页", "设置")
     }
     val bottomIcons = if (themeLoaded) {
-        listOf(Icons.Default.Home, Icons.Default.Apps, Icons.Default.Edit, Icons.Default.Settings)
+        listOf(Icons.Default.Apps, Icons.Default.Settings)
     } else {
         listOf(Icons.Default.Home, Icons.Default.Settings)
     }
@@ -1177,6 +1126,7 @@ fun HomeScreen(
     var homeSearchQuery by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     var showMenuDialog by remember { mutableStateOf(false) }
+    var showNewProjectDialog by remember { mutableStateOf(false) }
     val hasDeniedPermission by viewModel.hasDeniedPermission.collectAsState()
 
     Scaffold(
@@ -1190,6 +1140,50 @@ fun HomeScreen(
                         modifier = Modifier.padding(end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Box {
+                            IconButton(
+                                onClick = { showNewProjectDialog = true },
+                                holdDownState = showNewProjectDialog
+                            ) {
+                                top.yukonga.miuix.kmp.basic.Icon(
+                                    imageVector = Icons.Default.NoteAdd,
+                                    contentDescription = "新建项目",
+                                    tint = colors.onSurface,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            OverlayListPopup(
+                                show = showNewProjectDialog,
+                                alignment = PopupPositionProvider.Align.Start,
+                                onDismissRequest = { showNewProjectDialog = false }
+                            ) {
+                                ListPopupColumn {
+                                    DropdownImpl(
+                                        text = "新建小米 MTZ 项目",
+                                        optionSize = 1,
+                                        isSelected = false,
+                                        index = 0,
+                                        onSelectedIndexChange = {
+                                            showNewProjectDialog = false
+                                            viewModel.createEmptyProject(ProjectType.MTZ)
+                                        }
+                                    )
+                                    DropdownImpl(
+                                        text = "新建 Magisk 模块项目",
+                                        optionSize = 1,
+                                        isSelected = false,
+                                        index = 1,
+                                        onSelectedIndexChange = {
+                                            showNewProjectDialog = false
+                                            viewModel.createEmptyProject(ProjectType.MAGISK_ZIP)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
                         Box {
                             IconButton(
                                 onClick = { showMenuDialog = true },
@@ -1248,7 +1242,7 @@ fun HomeScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = 16.dp)
+                    .offset { androidx.compose.ui.unit.IntOffset(0, (16.dp.toPx() * (1f - scrollBehavior.state.collapsedFraction)).toInt()) }
             ) {
                 SearchBar(
                     modifier = Modifier.padding(horizontal = 0.dp),
@@ -1290,7 +1284,7 @@ fun HomeScreen(
                     }.filter {
                         it.packageName.contains(homeSearchQuery, ignoreCase = true) ||
                         (it.matchedAppName?.contains(homeSearchQuery, ignoreCase = true) ?: false)
-                    }.sortedWith(compareByDescending<IconItem> { it.imageBytes.isNotEmpty() }.thenBy { it.matchedAppName ?: it.packageName })
+                    }.sortedWith(compareByDescending<IconItem> { it.imageBytes?.isNotEmpty() == true }.thenBy { it.matchedAppName ?: it.packageName })
                 } else {
                     emptyList()
                 }
@@ -1320,10 +1314,10 @@ fun HomeScreen(
                                     modifier = Modifier.padding(horizontal = 32.dp)
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Button(
+                                top.yukonga.miuix.kmp.basic.Button(
                                     onClick = onShowPermissionRequest
                                 ) {
-                                    Text("申请权限授权", color = Color.White)
+                                    top.yukonga.miuix.kmp.basic.Text("申请权限授权", color = Color.White)
                                 }
                             } else {
                                 CircularProgressIndicator(color = colors.primary)
@@ -1493,7 +1487,7 @@ fun IconPageScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = 16.dp)
+                    .offset { androidx.compose.ui.unit.IntOffset(0, (16.dp.toPx() * (1f - scrollBehavior.state.collapsedFraction)).toInt()) }
             ) {
                 SearchBar(
                     modifier = Modifier.padding(horizontal = 0.dp),
@@ -1606,9 +1600,22 @@ fun IconPageScreen(
                                         val iconModifier = Modifier
                                             .padding(end = 4.dp)
                                             .size(40.dp)
-                                        if (icon.imageBitmap != null) {
+                                        
+                                        var bmp by remember(icon.packageName) { mutableStateOf(icon.imageBitmap) }
+                                        LaunchedEffect(icon.packageName) {
+                                            if (bmp == null && isUnadapted) {
+                                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                    val loaded = viewModel.loadAppIconBitmap(icon.packageName)
+                                                    if (loaded != null) {
+                                                        bmp = loaded
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if (bmp != null) {
                                             Image(
-                                                bitmap = icon.imageBitmap!!,
+                                                bitmap = bmp!!,
                                                 contentDescription = icon.packageName,
                                                 modifier = iconModifier,
                                                 contentScale = ContentScale.Fit
@@ -1653,10 +1660,13 @@ fun VisualConfigScreen(
     onPickPreviewL: () -> Unit,
     onPickPreviewS: () -> Unit,
     onExport: (String) -> Unit,
-    context: android.content.Context
+    context: android.content.Context,
+    onBack: (() -> Unit)? = null
 ) {
     val colors = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
     val scrollBehavior = top.yukonga.miuix.kmp.basic.MiuixScrollBehavior()
+    val isDark = top.yukonga.miuix.kmp.theme.LocalIsDarkTheme.current
+    val basicBgColor = if (isDark) androidx.compose.ui.graphics.Color(0xFF242424) else androidx.compose.ui.graphics.Color(0xFFFFFFFF)
     
     var titleText by remember(metadata) { mutableStateOf(metadata.title) }
     var authorText by remember(metadata) { mutableStateOf(metadata.author) }
@@ -1673,7 +1683,18 @@ fun VisualConfigScreen(
             TopAppBar(
                 title = "信息编辑",
                 largeTitle = "信息编辑",
-                scrollBehavior = scrollBehavior
+                scrollBehavior = scrollBehavior,
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "返回",
+                                tint = colors.onSurface
+                            )
+                        }
+                    }
+                }
             )
         },
         bottomBar = onBottomBar
@@ -1698,85 +1719,20 @@ fun VisualConfigScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                TabRow(
+                    selectedTabIndex = if (projectType == ProjectType.MTZ) 0 else 1,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    androidx.compose.material3.Card(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { viewModel.loadTemplate(ProjectType.MTZ) }
-                            .border(
-                                width = if (projectType == ProjectType.MTZ) 2.dp else 1.dp,
-                                color = if (projectType == ProjectType.MTZ) colors.primary else colors.surfaceVariant,
-                                shape = RoundedCornerShape(16.dp)
-                            ),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (projectType == ProjectType.MTZ) colors.primary.copy(alpha = 0.05f) else colors.surface
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                Icons.Default.Palette,
-                                contentDescription = "MTZ",
-                                tint = if (projectType == ProjectType.MTZ) colors.primary else colors.onSurface.copy(alpha = 0.6f)
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                "小米 MTZ 主题包",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (projectType == ProjectType.MTZ) colors.primary else colors.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                "支持在个性主题中导入",
-                                fontSize = 10.sp,
-                                color = colors.onSurface.copy(alpha=0.6f)
-                            )
-                        }
-                    }
-
-                    androidx.compose.material3.Card(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { viewModel.loadTemplate(ProjectType.MAGISK_ZIP) }
-                            .border(
-                                width = if (projectType == ProjectType.MAGISK_ZIP) 2.dp else 1.dp,
-                                color = if (projectType == ProjectType.MAGISK_ZIP) colors.primary else colors.surfaceVariant,
-                                shape = RoundedCornerShape(16.dp)
-                            ),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (projectType == ProjectType.MAGISK_ZIP) colors.primary.copy(alpha = 0.05f) else colors.surface
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                Icons.Default.Memory,
-                                contentDescription = "Magisk",
-                                tint = if (projectType == ProjectType.MAGISK_ZIP) colors.primary else colors.onSurface.copy(alpha = 0.6f)
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                "Magisk 图标模组",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (projectType == ProjectType.MAGISK_ZIP) colors.primary else colors.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                "通过Magisk安装无损替换",
-                                fontSize = 10.sp,
-                                color = colors.onSurface.copy(alpha=0.6f)
-                            )
-                        }
-                    }
+                    Tab(
+                        selected = projectType == ProjectType.MTZ,
+                        onClick = { viewModel.loadTemplate(ProjectType.MTZ) },
+                        text = { Text("小米 MTZ 主题包") }
+                    )
+                    Tab(
+                        selected = projectType == ProjectType.MAGISK_ZIP,
+                        onClick = { viewModel.loadTemplate(ProjectType.MAGISK_ZIP) },
+                        text = { Text("Magisk 图标模组") }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -1788,7 +1744,7 @@ fun VisualConfigScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp)),
-                    color = colors.surfaceVariant.copy(alpha = 0.4f)
+                    color = basicBgColor
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         TextField(
@@ -1859,7 +1815,7 @@ fun VisualConfigScreen(
                 Spacer(modifier = Modifier.height(32.dp))
 
                 // Action buttons: Compile Export
-                Button(
+                top.yukonga.miuix.kmp.basic.Button(
                     onClick = {
                         val finalId = titleText.lowercase().replace(" ", "_").ifEmpty { "miuix_theme" }
                         val endSuffix = if (projectType == ProjectType.MTZ) ".mtz" else ".zip"
@@ -1872,14 +1828,14 @@ fun VisualConfigScreen(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
+                        top.yukonga.miuix.kmp.basic.Icon(
                             imageVector = Icons.Default.SaveAlt,
                             contentDescription = "Save and export",
                             tint = colors.onPrimary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
+                        top.yukonga.miuix.kmp.basic.Text(
                             text = "保存并导出主题包 (${if (projectType == ProjectType.MTZ) ".mtz" else ".zip"})",
                             fontSize = 13.sp,
                             color = colors.onPrimary,

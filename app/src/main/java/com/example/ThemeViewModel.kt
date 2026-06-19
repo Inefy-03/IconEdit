@@ -56,6 +56,9 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
     private val _themeLoaded = MutableStateFlow(false)
     val themeLoaded = _themeLoaded.asStateFlow()
 
+    private val _originalThemeBytes = MutableStateFlow<ByteArray?>(null)
+    val originalThemeBytes = _originalThemeBytes.asStateFlow()
+
     private val _showSystemApps = MutableStateFlow(false)
     val showSystemApps = _showSystemApps.asStateFlow()
     
@@ -75,13 +78,11 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
     val customizeUiPrint = _customizeUiPrint.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            _nativeApps.value = repository.loadInstalledApps()
-        }
     }
 
     fun resetTheme() {
         _themeLoaded.value = false
+        _originalThemeBytes.value = null
         _icons.value = emptyList()
         _selectedIcon.value = null
         _metadata.value = ThemeMetadata()
@@ -95,7 +96,7 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("has_denied_permission", denied).apply()
     }
 
-    fun updatePermissionStateFromSystem(context: android.content.Context, isGranted: Boolean) {
+    fun updatePermissionStateFromSystem(context: android.content.Context, isGranted: Boolean, forceRefresh: Boolean = false) {
         _hasAppListPermission.value = isGranted
         prefs.edit().putBoolean("has_app_list_permission", isGranted).apply()
         
@@ -103,7 +104,11 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
             _hasDeniedPermission.value = false
             prefs.edit().putBoolean("has_denied_permission", false).apply()
             viewModelScope.launch {
-                _nativeApps.value = repository.loadInstalledApps()
+                _nativeApps.value = repository.loadInstalledApps(forceRefresh = forceRefresh)
+            }
+        } else {
+            viewModelScope.launch {
+                _nativeApps.value = repository.loadInstalledApps(forceRefresh = forceRefresh)
             }
         }
     }
@@ -115,12 +120,16 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
             _hasDeniedPermission.value = false
             prefs.edit().putBoolean("has_denied_permission", false).apply()
             viewModelScope.launch {
-                _nativeApps.value = repository.loadInstalledApps()
+                _nativeApps.value = repository.loadInstalledApps(forceRefresh = true)
             }
         } else {
             _hasDeniedPermission.value = true
             prefs.edit().putBoolean("has_denied_permission", true).apply()
         }
+    }
+
+    fun loadAppIconBitmap(packageName: String): androidx.compose.ui.graphics.ImageBitmap? {
+        return repository.loadAppIconBitmap(packageName)
     }
 
     /**
@@ -192,13 +201,16 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
     fun loadStream(inputStream: InputStream, name: String) {
         viewModelScope.launch {
             try {
+                val bytes = inputStream.readBytes()
+                _originalThemeBytes.value = bytes
+                
                 val isMagisk = name.endsWith(".zip", ignoreCase = true) && !name.contains(".mtz", ignoreCase = true)
                 val type = if (isMagisk) ProjectType.MAGISK_ZIP else ProjectType.MTZ
                 
                 val result = if (type == ProjectType.MTZ) {
-                    repository.loadMtz(inputStream)
+                    repository.loadMtz(java.io.ByteArrayInputStream(bytes))
                 } else {
-                    repository.loadMagiskZip(inputStream)
+                    repository.loadMagiskZip(java.io.ByteArrayInputStream(bytes))
                 }
                 
                 _projectType.value = type
@@ -221,6 +233,25 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
                 try { inputStream.close() } catch (f: Exception) {}
             }
         }
+    }
+
+    /**
+     * Creates a brand-new empty project
+     */
+    fun createEmptyProject(type: ProjectType) {
+        _originalThemeBytes.value = null
+        _projectType.value = type
+        if (type == ProjectType.MTZ) {
+            _metadata.value = ThemeMetadata(title = "新 MTZ 主题", author = "Miuix Designer", designer = "Miuix Designer")
+        } else {
+            _metadata.value = ThemeMetadata(title = "新 Magisk 模块", author = "Magisk Developer")
+        }
+        _icons.value = emptyList()
+        _selectedIcon.value = null
+        _wallpaperBytes.value = null
+        _previewLauncherBytes.value = null
+        _previewLockscreenBytes.value = null
+        _themeLoaded.value = true
     }
 
     /**
@@ -306,23 +337,48 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
         
         val prefix = if (_projectType.value == ProjectType.MTZ) "mtz" else "zip"
         val tempFile = java.io.File(cacheDir, "export_${System.currentTimeMillis()}.$prefix")
-        return if (_projectType.value == ProjectType.MTZ) {
-            repository.exportMtz(
-                _metadata.value,
-                _icons.value,
-                tempFile,
-                _wallpaperBytes.value,
-                _previewLauncherBytes.value,
-                _previewLockscreenBytes.value
-            )
+        
+        val templateBytes = _originalThemeBytes.value
+        return if (templateBytes != null) {
+            if (_projectType.value == ProjectType.MTZ) {
+                repository.exportMtzWithTemplate(
+                    templateBytes,
+                    _metadata.value,
+                    _icons.value,
+                    tempFile,
+                    _wallpaperBytes.value,
+                    _previewLauncherBytes.value,
+                    _previewLockscreenBytes.value
+                )
+            } else {
+                repository.exportMagiskZipWithTemplate(
+                    templateBytes,
+                    _metadata.value,
+                    _icons.value,
+                    moduleId,
+                    tempFile,
+                    _customizeUiPrint.value
+                )
+            }
         } else {
-            repository.exportMagiskZip(
-                _metadata.value,
-                _icons.value,
-                moduleId,
-                tempFile,
-                _customizeUiPrint.value
-            )
+            if (_projectType.value == ProjectType.MTZ) {
+                repository.exportMtz(
+                    _metadata.value,
+                    _icons.value,
+                    tempFile,
+                    _wallpaperBytes.value,
+                    _previewLauncherBytes.value,
+                    _previewLockscreenBytes.value
+                )
+            } else {
+                repository.exportMagiskZip(
+                    _metadata.value,
+                    _icons.value,
+                    moduleId,
+                    tempFile,
+                    _customizeUiPrint.value
+                )
+            }
         }
     }
 }
