@@ -24,13 +24,13 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +43,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -54,7 +57,6 @@ import top.yukonga.miuix.kmp.basic.RadioButton
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.TabRow
-import androidx.compose.material3.Tab
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
@@ -141,15 +143,70 @@ class MainActivity : ComponentActivity() {
             ) {
                 var currentTab by remember { mutableStateOf(0) }
                 val themeMode by viewModel.themeMode.collectAsState()
+                val useAppleFloatingBar by viewModel.useAppleFloatingBar.collectAsState()
+                val useBlur by viewModel.useBlur.collectAsState()
+                val useMiuixMonet by viewModel.useMiuixMonet.collectAsState()
+                val useDynamicColor by viewModel.useDynamicColor.collectAsState()
+                val paletteStyle by viewModel.paletteStyle.collectAsState()
+                val colorSpec by viewModel.colorSpec.collectAsState()
+                val seedColor by viewModel.seedColor.collectAsState()
+
                 val isDarkTheme = when (themeMode) {
                     1 -> false
                     2 -> true
                     else -> androidx.compose.foundation.isSystemInDarkTheme()
                 }
-                
-                val activeColors = if (isDarkTheme) top.yukonga.miuix.kmp.theme.darkColorScheme() else top.yukonga.miuix.kmp.theme.lightColorScheme()
-                
-                MiuixTheme(colors = activeColors) {
+
+                val presetColors = listOf(Color(0xFF007AFF), Color(0xFF34C759), Color(0xFFFF9500), Color(0xFFFF3B30), Color(0xFFAF52DE))
+                val activeSeedColor = presetColors.getOrNull(seedColor) ?: presetColors[0]
+
+                val controller = if (useMiuixMonet) {
+                    val keyColor = if (useDynamicColor && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S)
+                        androidx.compose.ui.res.colorResource(id = android.R.color.system_accent1_500)
+                    else activeSeedColor
+
+                    val colorSchemeMode = when (themeMode) {
+                        0 -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.MonetSystem
+                        1 -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.MonetLight
+                        else -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.MonetDark
+                    }
+
+                    val style = when (paletteStyle) {
+                        0 -> top.yukonga.miuix.kmp.theme.ThemePaletteStyle.TonalSpot
+                        1 -> top.yukonga.miuix.kmp.theme.ThemePaletteStyle.Neutral
+                        2 -> top.yukonga.miuix.kmp.theme.ThemePaletteStyle.Vibrant
+                        else -> top.yukonga.miuix.kmp.theme.ThemePaletteStyle.Expressive
+                    }
+
+                    val colorSpecVersion = when (colorSpec) {
+                        1 -> top.yukonga.miuix.kmp.theme.ThemeColorSpec.Spec2025
+                        else -> top.yukonga.miuix.kmp.theme.ThemeColorSpec.Spec2021
+                    }
+
+                    remember(colorSchemeMode, keyColor, style, colorSpecVersion, isDarkTheme) {
+                        top.yukonga.miuix.kmp.theme.ThemeController(
+                            colorSchemeMode = colorSchemeMode,
+                            keyColor = keyColor,
+                            paletteStyle = style,
+                            colorSpec = colorSpecVersion,
+                            isDark = isDarkTheme
+                        )
+                    }
+                } else {
+                    val colorSchemeMode = when (themeMode) {
+                        0 -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.System
+                        1 -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Light
+                        else -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Dark
+                    }
+                    remember(colorSchemeMode, isDarkTheme) {
+                        top.yukonga.miuix.kmp.theme.ThemeController(
+                            colorSchemeMode = colorSchemeMode,
+                            isDark = isDarkTheme
+                        )
+                    }
+                }
+
+                MiuixTheme(controller = controller) {
                     androidx.compose.runtime.CompositionLocalProvider(top.yukonga.miuix.kmp.theme.LocalIsDarkTheme provides isDarkTheme) {
                         val colors = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 
@@ -221,7 +278,7 @@ class MainActivity : ComponentActivity() {
 
                 // Contracts definition for file picking & document generation
                 val openFileLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.GetContent()
+                    contract = ActivityResultContracts.OpenDocument()
                 ) { uri ->
                     if (uri != null) {
                         try {
@@ -361,7 +418,6 @@ class MainActivity : ComponentActivity() {
                 val bottomBar: @Composable () -> Unit = {
                     MyBottomBar(
                         currentTab = currentTab,
-                        themeLoaded = themeLoaded,
                         onTabSelected = { selectedTab ->
                             currentTab = selectedTab
                         }
@@ -371,95 +427,100 @@ class MainActivity : ComponentActivity() {
                 top.yukonga.miuix.kmp.basic.Scaffold(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         if (secondaryScreen == "visual_config") {
-                        VisualConfigScreen(
-                            metadata = metadata,
-                            projectType = projectType,
-                            viewModel = viewModel,
-                            onBottomBar = {},
-                            onPickWallpaper = { pickWallpaperLauncher.launch("image/*") },
-                            onPickPreviewL = { pickPreviewLauncherLauncher.launch("image/*") },
-                            onPickPreviewS = { pickPreviewLockscreenLauncher.launch("image/*") },
-                            onExport = { defaultName ->
-                                exportDocumentLauncher.launch(defaultName)
-                            },
-                            context = this@MainActivity,
-                            onBack = { secondaryScreen = null }
-                        )
-                    } else if (!themeLoaded) {
-                        when (currentTab) {
-                            0 -> {
-                                HomeScreen(
-                                    nativeApps = nativeApps,
-                                    showSystemApps = showSystemApps,
-                                    hasAppListPermission = hasAppListPermission,
-                                    onShowPermissionRequest = {
-                                        val hasPrompted = prefs.getBoolean("has_prompted_once", false)
-                                        val canAskSystem = !hasPrompted || androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(this@MainActivity, "android.permission.GET_INSTALLED_APPS")
-                                        if (canAskSystem) {
-                                            requestPermissionLauncher.launch("android.permission.GET_INSTALLED_APPS")
-                                        } else {
-                                            try {
-                                                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                    data = Uri.fromParts("package", packageName, null)
-                                                }
-                                                startActivity(intent)
-                                            } catch (e: Exception) {
-                                                Toast.makeText(this@MainActivity, "请去设置页面手动开启权限", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    },
-                                    onImportRequested = {
-                                        if (projectType == ProjectType.MTZ) {
-                                            openFileLauncher.launch("*/*")
-                                        } else {
-                                            openFileLauncher.launch("application/zip")
-                                        }
-                                    },
-                                    onBottomBar = bottomBar,
-                                    viewModel = viewModel
-                                )
-                            }
-                            1 -> {
-                                SettingsScreen(
-                                    themeMode = themeMode,
-                                    onThemeModeChange = { viewModel.setThemeMode(it) },
-                                    onBottomBar = bottomBar
-                                )
+                            VisualConfigScreen(
+                                metadata = metadata,
+                                projectType = projectType,
+                                viewModel = viewModel,
+                                onBottomBar = {},
+                                onPickWallpaper = { pickWallpaperLauncher.launch("image/*") },
+                                onPickPreviewL = { pickPreviewLauncherLauncher.launch("image/*") },
+                                onPickPreviewS = { pickPreviewLockscreenLauncher.launch("image/*") },
+                                onExport = { format ->
+                                    if (format == "zip") {
+                                        openFileLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
+                                    }
+                                },
+                                context = this@MainActivity,
+                                onBack = { secondaryScreen = "" }
+                            )
+                        } else if (secondaryScreen == "appearance_settings") {
+                            AppearanceScreen(
+                                viewModel = viewModel,
+                                onBack = { secondaryScreen = "" }
+                            )
+                        } else if (secondaryScreen == "about") {
+                            AboutScreen(
+                                onBack = { secondaryScreen = "" },
+                                viewModel = viewModel
+                            )
+                        } else if (secondaryScreen == "icon_edit") {
+                            IconPageScreen(
+                                icons = icons,
+                                nativeApps = nativeApps,
+                                hasAppListPermission = hasAppListPermission,
+                                showSystemApps = showSystemApps,
+                                onIconSelected = { icon ->
+                                    viewModel.selectIcon(icon)
+                                },
+                                onCustomIconRequested = {
+                                    viewModel.setCustomIconCreatorVisible(true)
+                                },
+                                onCloseProjectRequested = {
+                                    secondaryScreen = ""
+                                },
+                                onBottomBar = {},
+                                onEnterVisualConfigRequested = {
+                                    secondaryScreen = "visual_config"
+                                },
+                                viewModel = viewModel
+                            )
+                        } else {
+                            when (currentTab) {
+                                0 -> {
+                                    HomeScreen(
+                                        nativeApps = nativeApps,
+                                        showSystemApps = showSystemApps,
+                                        hasAppListPermission = hasAppListPermission,
+                                        onShowPermissionRequest = {
+                                            requestPermissionLauncher.launch(android.Manifest.permission.QUERY_ALL_PACKAGES)
+                                        },
+                                        onImportRequested = {
+                                            openFileLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
+                                        },
+                                        onBottomBar = bottomBar,
+                                        viewModel = viewModel
+                                    )
+                                }
+                                1 -> {
+                                    ProjectScreen(
+                                        metadata = metadata,
+                                        themeLoaded = themeLoaded,
+                                        viewModel = viewModel,
+                                        onImportRequested = {
+                                            openFileLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
+                                        },
+                                        onEditInfo = {
+                                            secondaryScreen = "visual_config"
+                                        },
+                                        onDelete = {
+                                            showExitConfirmDialog = true
+                                        },
+                                        onEditIcons = {
+                                            secondaryScreen = "icon_edit"
+                                        },
+                                        onBottomBar = bottomBar
+                                    )
+                                }
+                                2 -> {
+                                    SettingsScreen(
+                                        onNavigateToAppearance = { secondaryScreen = "appearance_settings" },
+                                        onNavigateToAbout = { secondaryScreen = "about" },
+                                        onBottomBar = bottomBar,
+                                        viewModel = viewModel
+                                    )
+                                }
                             }
                         }
-                    } else {
-                        when (currentTab) {
-                            0 -> {
-                                IconPageScreen(
-                                    icons = icons,
-                                    nativeApps = nativeApps,
-                                    hasAppListPermission = hasAppListPermission,
-                                    showSystemApps = showSystemApps,
-                                    onIconSelected = { icon ->
-                                        viewModel.selectIcon(icon)
-                                    },
-                                    onCustomIconRequested = {
-                                        viewModel.setCustomIconCreatorVisible(true)
-                                    },
-                                    onCloseProjectRequested = {
-                                        showExitConfirmDialog = true
-                                    },
-                                    onBottomBar = bottomBar,
-                                    onEnterVisualConfigRequested = {
-                                        secondaryScreen = "visual_config"
-                                    },
-                                    viewModel = viewModel
-                                )
-                            }
-                            1 -> {
-                                SettingsScreen(
-                                    themeMode = themeMode,
-                                    onThemeModeChange = { viewModel.setThemeMode(it) },
-                                    onBottomBar = bottomBar
-                                )
-                            }
-                        }
-                    }
 
                     // 5. Interactive Floating Selected Icon Workbench Detail Overlay Sheet
                     WindowBottomSheet(
@@ -549,28 +610,38 @@ class MainActivity : ComponentActivity() {
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     // Option 1: Replace / Upload Image Override
-                                    top.yukonga.miuix.kmp.basic.Button(
-                                        onClick = {
-                                            pendingReplaceIcon = icon
-                                            dismiss?.invoke()
+                                     top.yukonga.miuix.kmp.basic.Button(
+                                         onClick = {
+                                             pendingReplaceIcon = icon
+                                             dismiss?.invoke()
                                             pickImageForReplaceLauncher.launch("image/*")
                                         },
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(46.dp)
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
                                             top.yukonga.miuix.kmp.basic.Icon(
                                                 Icons.Default.Image,
                                                 contentDescription = "导入替代图",
                                                 tint = colors.onPrimary,
-                                                modifier = Modifier.size(16.dp)
+                                                modifier = Modifier.size(18.dp)
                                             )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            top.yukonga.miuix.kmp.basic.Text("导入图片覆盖", fontSize = 12.sp, color = colors.onPrimary)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            top.yukonga.miuix.kmp.basic.Text(
+                                                text = "导入图片覆盖",
+                                                fontSize = 13.sp,
+                                                color = colors.onPrimary,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     }
                                 }
-
-                                // Option 2: Choose Alternatives if any exist in package list
+                                 // Option 2: Choose Alternatives if any exist in package list
                                 if (alternatives.isNotEmpty()) {
                                     Text(
                                         text = "可用样式:",
@@ -636,68 +707,92 @@ class MainActivity : ComponentActivity() {
                                         .clip(RoundedCornerShape(0.dp))
                                         .background(colors.surfaceVariant)
                                         .clickable { pickImageForCreatorLauncher.launch("image/*") },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (tempCreatorImageBytes != null) {
-                                        val bmp = android.graphics.BitmapFactory.decodeByteArray(
-                                            tempCreatorImageBytes, 0, tempCreatorImageBytes!!.size
-                                        )
-                                        bmp?.let {
-                                            Image(
-                                                bitmap = it.asImageBitmap(),
-                                                contentDescription = "预览图",
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        }
-                                    } else {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Icon(
-                                                Icons.Default.AddPhotoAlternate,
-                                                contentDescription = "选择图片",
-                                                tint = colors.onSurface.copy(alpha=0.6f),
-                                                modifier = Modifier.size(32.dp)
-                                            )
-                                            Text("点击选择图片", fontSize = 10.sp, color = colors.onSurface.copy(alpha=0.6f))
-                                        }
-                                    }
-                                }
+                                     contentAlignment = Alignment.Center
+                                 ) {
+                                     val bytes = tempCreatorImageBytes
+                                     if (bytes != null) {
+                                         val bitmap = remember(bytes) {
+                                             try {
+                                                 android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size).asImageBitmap()
+                                             } catch (e: Exception) {
+                                                 null
+                                             }
+                                         }
+                                         if (bitmap != null) {
+                                             androidx.compose.foundation.Image(
+                                                 bitmap = bitmap,
+                                                 contentDescription = "Selected Icon",
+                                                 modifier = Modifier.fillMaxSize(),
+                                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                             )
+                                         }
+                                     } else {
+                                         Column(
+                                             horizontalAlignment = Alignment.CenterHorizontally,
+                                             verticalArrangement = Arrangement.Center
+                                         ) {
+                                             top.yukonga.miuix.kmp.basic.Icon(
+                                                 Icons.Default.Add,
+                                                 contentDescription = "Add Icon",
+                                                 tint = colors.onSurface.copy(alpha = 0.6f),
+                                                 modifier = Modifier.size(24.dp)
+                                             )
+                                             Spacer(modifier = Modifier.height(4.dp))
+                                             Text(
+                                                 "点击选择图片",
+                                                 fontSize = 10.sp,
+                                                 color = colors.onSurface.copy(alpha = 0.6f)
+                                             )
+                                         }
+                                     }
+                                 }
 
-                                Spacer(modifier = Modifier.height(24.dp))
+                                 Spacer(modifier = Modifier.height(24.dp))
 
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
-                                ) {
-                                    top.yukonga.miuix.kmp.basic.TextButton(
-                                        "取消",
-                                        onClick = {
-                                            dismiss?.invoke()
-                                            tempCreatorPackageName = ""
-                                            tempCreatorImageBytes = null
-                                        }
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    top.yukonga.miuix.kmp.basic.Button(
-                                        onClick = {
-                                            val pName = tempCreatorPackageName
-                                            val bytes = tempCreatorImageBytes
-                                            if (pName.isNotEmpty() && bytes != null) {
-                                                viewModel.addCustomIcon(pName, bytes)
-                                                dismiss?.invoke()
-                                                tempCreatorPackageName = ""
-                                                tempCreatorImageBytes = null
-                                            } else {
-                                                Toast.makeText(this@MainActivity, "请填写完整包名并选择图片", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    ) {
-                                        top.yukonga.miuix.kmp.basic.Text("导入", color = Color.White)
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                            }
-                        }
-
+                                 Row(
+                                     modifier = Modifier.fillMaxWidth(),
+                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                 ) {
+                                     top.yukonga.miuix.kmp.basic.TextButton(
+                                         "取消",
+                                         onClick = {
+                                             viewModel.setCustomIconCreatorVisible(false)
+                                             tempCreatorPackageName = ""
+                                             tempCreatorImageBytes = null
+                                         },
+                                         modifier = Modifier.weight(1f)
+                                     )
+                                     top.yukonga.miuix.kmp.basic.Button(
+                                         onClick = {
+                                             val pName = tempCreatorPackageName
+                                             val bytes = tempCreatorImageBytes
+                                             if (pName.isNotEmpty() && bytes != null) {
+                                                 viewModel.addCustomIcon(pName, bytes)
+                                                 viewModel.setCustomIconCreatorVisible(false)
+                                                 tempCreatorPackageName = ""
+                                                 tempCreatorImageBytes = null
+                                             } else {
+                                                 Toast.makeText(this@MainActivity, "请填写完整包名并选择图片", Toast.LENGTH_SHORT).show()
+                                             }
+                                         },
+                                         modifier = Modifier.weight(1f)
+                                     ) {
+                                         Row(
+                                             horizontalArrangement = Arrangement.Center,
+                                             verticalAlignment = Alignment.CenterVertically,
+                                             modifier = Modifier.fillMaxWidth()
+                                         ) {
+                                             top.yukonga.miuix.kmp.basic.Text(
+                                                 text = "导入",
+                                                 color = colors.onPrimary,
+                                                 fontWeight = FontWeight.Bold
+                                             )
+                                         }
+                                     }
+                                 }
+                                 Spacer(modifier = Modifier.height(12.dp))
+                             }
+                         }
                     // 7b. Exit theme confirmation dialog
                     OverlayDialog(
                         title = "确认返回",
@@ -715,25 +810,36 @@ class MainActivity : ComponentActivity() {
                                 Spacer(modifier = Modifier.height(20.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     top.yukonga.miuix.kmp.basic.TextButton(
                                         "取消",
-                                        onClick = { showExitConfirmDialog = false }
+                                        onClick = { showExitConfirmDialog = false },
+                                        modifier = Modifier.weight(1f)
                                     )
-                                    Spacer(modifier = Modifier.width(12.dp))
                                     top.yukonga.miuix.kmp.basic.Button(
-                                        onClick = {
-                                            showExitConfirmDialog = false
-                                            viewModel.resetTheme()
-                                        }
+                                         onClick = {
+                                             showExitConfirmDialog = false
+                                             viewModel.resetTheme()
+                                         },
+                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        top.yukonga.miuix.kmp.basic.Text("确认", color = Color.White)
+                                         Row(
+                                             horizontalArrangement = Arrangement.Center,
+                                             verticalAlignment = Alignment.CenterVertically,
+                                             modifier = Modifier.fillMaxWidth()
+                                         ) {
+                                             top.yukonga.miuix.kmp.basic.Text(
+                                                 text = "确认",
+                                                 color = colors.onPrimary,
+                                                 fontWeight = FontWeight.Bold
+                                             )
+                                         }
                                     }
                                 }
                             }
                         }
-
+                        
                     // Custom self-drawn permission prompt was removed to utilize Native System Permission Popup
                     }
                     }
@@ -808,8 +914,7 @@ fun IconTileLayout(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() }
-            .border(1.dp, colors.surfaceVariant, RoundedCornerShape(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = colors.surface)
+            .border(1.dp, colors.surfaceVariant, RoundedCornerShape(16.dp))
     ) {
         Column(
             modifier = Modifier
@@ -1011,13 +1116,11 @@ fun MediaPreviewCard(
     onClick: () -> Unit
 ) {
     val colors = MiuixTheme.colorScheme
-    androidx.compose.material3.Card(
+    Card(
         modifier = Modifier
             .width(100.dp)
             .height(140.dp)
-            .clickable { onClick() },
-        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = colors.surfaceVariant),
-        elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .clickable { onClick() }
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (bytes != null) {
@@ -1036,11 +1139,11 @@ fun MediaPreviewCard(
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    androidx.compose.material3.Icon(Icons.Default.BrokenImage, contentDescription = "Error", tint = colors.onSurface.copy(alpha = 0.6f))
+                    Icon(Icons.Default.BrokenImage, contentDescription = "Error", tint = colors.onSurface.copy(alpha = 0.6f))
                 }
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(6.dp)) {
-                    androidx.compose.material3.Icon(Icons.Default.CloudUpload, contentDescription = "Upload", tint = colors.onSurface.copy(alpha = 0.6f), modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.CloudUpload, contentDescription = "Upload", tint = colors.onSurface.copy(alpha = 0.6f), modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(title, fontSize = 11.sp, color = colors.onSurface, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(2.dp))
@@ -1051,54 +1154,15 @@ fun MediaPreviewCard(
     }
 }
 
-@Composable
-fun ArrowPreference(
-    title: String,
-    summary: String? = null,
-    onClick: () -> Unit
-) {
-    val colors = MiuixTheme.colorScheme
-    val isDark = top.yukonga.miuix.kmp.theme.LocalIsDarkTheme.current
-    val backgroundColor = if (isDark) Color(0xFF242424) else Color(0xFFFFFFFF)
-    top.yukonga.miuix.kmp.basic.Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .clip(RoundedCornerShape(16.dp)),
-        color = backgroundColor
-    ) {
-        top.yukonga.miuix.kmp.basic.BasicComponent(
-            title = title,
-            summary = summary,
-            endActions = {
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowRight,
-                    contentDescription = "详情",
-                    tint = colors.onSurface.copy(alpha = 0.4f),
-                    modifier = Modifier.size(20.dp).padding(end = 4.dp)
-                )
-            },
-            onClick = onClick
-        )
-    }
-}
+
 
 @Composable
 fun MyBottomBar(
     currentTab: Int,
-    themeLoaded: Boolean,
     onTabSelected: (Int) -> Unit
 ) {
-    val items = if (themeLoaded) {
-        listOf("项目", "设置")
-    } else {
-        listOf("主页", "设置")
-    }
-    val bottomIcons = if (themeLoaded) {
-        listOf(Icons.Default.Apps, Icons.Default.Settings)
-    } else {
-        listOf(Icons.Default.Home, Icons.Default.Settings)
-    }
+    val items = listOf("首页", "项目", "设置")
+    val bottomIcons = listOf(Icons.Default.Home, Icons.Default.Folder, Icons.Default.Settings)
     NavigationBar {
         items.forEachIndexed { index, label ->
             NavigationBarItem(
@@ -1128,60 +1192,23 @@ fun HomeScreen(
     var showMenuDialog by remember { mutableStateOf(false) }
     var showNewProjectDialog by remember { mutableStateOf(false) }
     val hasDeniedPermission by viewModel.hasDeniedPermission.collectAsState()
+    val isAppsLoading by viewModel.isAppsLoading.collectAsState()
+    val useBlur by viewModel.useBlur.collectAsState()
+    val blurBackdrop = rememberMiuixBlurBackdrop(useBlur)
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = "IconEdit",
-                largeTitle = "IconEdit",
+                modifier = Modifier.tsMiuixBlurEffect(blurBackdrop),
+                color = blurBackdrop.getMiuixAppBarColor(),
+                title = "主页",
+                largeTitle = "主页",
                 scrollBehavior = scrollBehavior,
                 actions = {
                     Row(
                         modifier = Modifier.padding(end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box {
-                            IconButton(
-                                onClick = { showNewProjectDialog = true },
-                                holdDownState = showNewProjectDialog
-                            ) {
-                                top.yukonga.miuix.kmp.basic.Icon(
-                                    imageVector = Icons.Default.NoteAdd,
-                                    contentDescription = "新建项目",
-                                    tint = colors.onSurface,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                            OverlayListPopup(
-                                show = showNewProjectDialog,
-                                alignment = PopupPositionProvider.Align.Start,
-                                onDismissRequest = { showNewProjectDialog = false }
-                            ) {
-                                ListPopupColumn {
-                                    DropdownImpl(
-                                        text = "新建小米 MTZ 项目",
-                                        optionSize = 1,
-                                        isSelected = false,
-                                        index = 0,
-                                        onSelectedIndexChange = {
-                                            showNewProjectDialog = false
-                                            viewModel.createEmptyProject(ProjectType.MTZ)
-                                        }
-                                    )
-                                    DropdownImpl(
-                                        text = "新建 Magisk 模块项目",
-                                        optionSize = 1,
-                                        isSelected = false,
-                                        index = 1,
-                                        onSelectedIndexChange = {
-                                            showNewProjectDialog = false
-                                            viewModel.createEmptyProject(ProjectType.MAGISK_ZIP)
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
                         Spacer(modifier = Modifier.width(8.dp))
 
                         Box {
@@ -1190,7 +1217,7 @@ fun HomeScreen(
                                 holdDownState = showMenuDialog
                             ) {
                                 top.yukonga.miuix.kmp.basic.Icon(
-                                    imageVector = Icons.Default.MoreVert,
+                                    imageVector = Icons.Default.MoreHoriz,
                                     contentDescription = "更多设置",
                                     tint = colors.onSurface,
                                     modifier = Modifier.size(24.dp)
@@ -1198,7 +1225,7 @@ fun HomeScreen(
                             }
                             OverlayListPopup(
                                 show = showMenuDialog,
-                                alignment = PopupPositionProvider.Align.Start,
+                                alignment = PopupPositionProvider.Align.End,
                                 onDismissRequest = { showMenuDialog = false }
                             ) {
                                 ListPopupColumn {
@@ -1219,24 +1246,12 @@ fun HomeScreen(
                 }
             )
         },
-        bottomBar = onBottomBar,
-        floatingActionButton = {
-            top.yukonga.miuix.kmp.basic.FloatingActionButton(
-                onClick = onImportRequested,
-                modifier = Modifier.padding(end = 16.dp, bottom = 16.dp)
-            ) {
-                top.yukonga.miuix.kmp.basic.Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "添加",
-                    tint = Color.White,
-                    modifier = Modifier.size(30.dp)
-                )
-            }
-        }
+        bottomBar = onBottomBar
     ) { innerPadding ->
-        Surface(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
+                .then(blurBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier)
                 .padding(top = innerPadding.calculateTopPadding(), bottom = innerPadding.calculateBottomPadding())
         ) {
             Column(
@@ -1297,7 +1312,9 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        if (!hasAppListPermission) {
+                        if (isAppsLoading) {
+                            InfiniteProgressIndicator(color = colors.primary)
+                        } else if (!hasAppListPermission) {
                             if (hasDeniedPermission) {
                                 Icon(
                                     Icons.Default.Info,
@@ -1315,12 +1332,22 @@ fun HomeScreen(
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 top.yukonga.miuix.kmp.basic.Button(
-                                    onClick = onShowPermissionRequest
+                                    onClick = onShowPermissionRequest, modifier = Modifier.padding(horizontal = 24.dp).height(44.dp).widthIn(min = 180.dp)
                                 ) {
-                                    top.yukonga.miuix.kmp.basic.Text("申请权限授权", color = Color.White)
+                                    Row(
+                                         horizontalArrangement = Arrangement.Center,
+                                         verticalAlignment = Alignment.CenterVertically,
+                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                                     ) {
+                                         top.yukonga.miuix.kmp.basic.Text(
+                                             text = "申请权限授权",
+                                             color = colors.onPrimary,
+                                             fontWeight = FontWeight.Bold
+                                         )
+                                     }
                                 }
                             } else {
-                                CircularProgressIndicator(color = colors.primary)
+                                InfiniteProgressIndicator(color = colors.primary)
                             }
                         } else {
                             Icon(
@@ -1347,13 +1374,10 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(filteredApps, key = { it.packageName }) { icon ->
-                            val isDark = top.yukonga.miuix.kmp.theme.LocalIsDarkTheme.current
-                            top.yukonga.miuix.kmp.basic.Surface(
+                            top.yukonga.miuix.kmp.basic.Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 12.dp)
-                                    .clip(RoundedCornerShape(16.dp)),
-                                color = if (isDark) Color(0xFF242424) else Color(0xFFFFFFFF)
                             ) {
                                 top.yukonga.miuix.kmp.basic.BasicComponent(
                                     title = icon.matchedAppName ?: icon.packageName.substringAfterLast("."),
@@ -1363,21 +1387,10 @@ fun HomeScreen(
                                         val iconModifier = Modifier
                                             .padding(end = 4.dp)
                                             .size(40.dp)
-                                        if (icon.imageBitmap != null) {
-                                            Image(
-                                                bitmap = icon.imageBitmap!!,
-                                                contentDescription = icon.packageName,
-                                                modifier = iconModifier,
-                                                contentScale = ContentScale.Fit
-                                            )
-                                        } else {
-                                            Icon(
-                                                imageVector = Icons.Default.Apps,
-                                                contentDescription = "默认",
-                                                tint = colors.onSurface.copy(alpha=0.6f),
-                                                modifier = iconModifier
-                                            )
-                                        }
+                                        NativeAppIcon(
+                                            packageName = icon.packageName,
+                                            modifier = iconModifier
+                                        )
                                     }
                                 )
                             }
@@ -1407,10 +1420,14 @@ fun IconPageScreen(
     var iconSearchQuery by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     var showMenuDialog by remember { mutableStateOf(false) }
+    val useBlur by viewModel.useBlur.collectAsState()
+    val blurBackdrop = rememberMiuixBlurBackdrop(useBlur)
 
     Scaffold(
         topBar = {
             TopAppBar(
+                modifier = Modifier.tsMiuixBlurEffect(blurBackdrop),
+                color = blurBackdrop.getMiuixAppBarColor(),
                 title = "图标管理",
                 largeTitle = "图标管理",
                 scrollBehavior = scrollBehavior,
@@ -1425,7 +1442,7 @@ fun IconPageScreen(
                                 holdDownState = showMenuDialog
                             ) {
                                 top.yukonga.miuix.kmp.basic.Icon(
-                                    imageVector = Icons.Default.MoreVert,
+                                    imageVector = Icons.Default.MoreHoriz,
                                     contentDescription = "更多设置",
                                     tint = colors.onSurface,
                                     modifier = Modifier.size(24.dp)
@@ -1433,7 +1450,7 @@ fun IconPageScreen(
                             }
                             OverlayListPopup(
                                 show = showMenuDialog,
-                                alignment = PopupPositionProvider.Align.Start,
+                                alignment = PopupPositionProvider.Align.End,
                                 onDismissRequest = { showMenuDialog = false }
                             ) {
                                 ListPopupColumn {
@@ -1479,9 +1496,10 @@ fun IconPageScreen(
             }
         }
     ) { innerPadding ->
-        Surface(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
+                .then(blurBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier)
                 .padding(top = innerPadding.calculateTopPadding(), bottom = innerPadding.calculateBottomPadding())
         ) {
             Column(
@@ -1523,11 +1541,15 @@ fun IconPageScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                ArrowPreference(
-                    title = "信息编辑",
-                    summary = "自定义主题的名称、作者、壁纸等配置",
-                    onClick = onEnterVisualConfigRequested
-                )
+                Card(
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
+                    top.yukonga.miuix.kmp.preference.ArrowPreference(
+                        title = "信息编辑",
+                        summary = "自定义主题的名称、作者、壁纸等配置",
+                        onClick = onEnterVisualConfigRequested
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -1584,13 +1606,10 @@ fun IconPageScreen(
                         items(filteredIcons, key = { it.packageName }) { icon ->
                             val isUnadapted = !packPackageNames.contains(icon.packageName)
                             val showAppName = !isUnadapted || icon.matchedAppName != null
-                            val isDark = top.yukonga.miuix.kmp.theme.LocalIsDarkTheme.current
-                            top.yukonga.miuix.kmp.basic.Surface(
+                            top.yukonga.miuix.kmp.basic.Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 12.dp)
-                                    .clip(RoundedCornerShape(16.dp)),
-                                color = if (isDark) Color(0xFF242424) else Color(0xFFFFFFFF)
                             ) {
                                 top.yukonga.miuix.kmp.basic.BasicComponent(
                                     title = if (showAppName) (icon.matchedAppName ?: icon.packageName.substringAfterLast(".")) else icon.packageName,
@@ -1651,6 +1670,175 @@ fun IconPageScreen(
 }
 
 @Composable
+fun ProjectScreen(
+    metadata: ThemeMetadata,
+    themeLoaded: Boolean,
+    viewModel: ThemeViewModel,
+    onImportRequested: () -> Unit,
+    onEditInfo: () -> Unit,
+    onDelete: () -> Unit,
+    onEditIcons: () -> Unit,
+    onBottomBar: @Composable () -> Unit
+) {
+    val colors = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+    val scrollBehavior = top.yukonga.miuix.kmp.basic.MiuixScrollBehavior()
+    var showNewProjectDialog by remember { mutableStateOf(false) }
+    val useBlur by viewModel.useBlur.collectAsState()
+    val blurBackdrop = rememberMiuixBlurBackdrop(useBlur)
+    
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                modifier = Modifier.tsMiuixBlurEffect(blurBackdrop),
+                color = blurBackdrop.getMiuixAppBarColor(),
+                title = "项目",
+                largeTitle = "项目",
+                scrollBehavior = scrollBehavior,
+                actions = {
+                    Row(
+                        modifier = Modifier.padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box {
+                            IconButton(
+                                onClick = { showNewProjectDialog = true },
+                                holdDownState = showNewProjectDialog
+                            ) {
+                                top.yukonga.miuix.kmp.basic.Icon(
+                                    imageVector = Icons.Default.NoteAdd,
+                                    contentDescription = "新建项目",
+                                    tint = colors.onSurface,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            OverlayListPopup(
+                                show = showNewProjectDialog,
+                                alignment = PopupPositionProvider.Align.End,
+                                onDismissRequest = { showNewProjectDialog = false }
+                            ) {
+                                ListPopupColumn {
+                                    DropdownImpl(
+                                        text = "新建小米 MTZ 项目",
+                                        optionSize = 1,
+                                        isSelected = false,
+                                        index = 0,
+                                        onSelectedIndexChange = {
+                                            showNewProjectDialog = false
+                                            viewModel.createEmptyProject(ProjectType.MTZ)
+                                        }
+                                    )
+                                    DropdownImpl(
+                                        text = "新建 Magisk 模块项目",
+                                        optionSize = 1,
+                                        isSelected = false,
+                                        index = 1,
+                                        onSelectedIndexChange = {
+                                            showNewProjectDialog = false
+                                            viewModel.createEmptyProject(ProjectType.MAGISK_ZIP)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            )
+        },
+        bottomBar = onBottomBar,
+        floatingActionButton = {
+            top.yukonga.miuix.kmp.basic.FloatingActionButton(
+                onClick = onImportRequested,
+                modifier = Modifier.padding(end = 16.dp, bottom = 16.dp)
+            ) {
+                top.yukonga.miuix.kmp.basic.Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "添加",
+                    tint = Color.White,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(blurBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier)
+                .padding(top = innerPadding.calculateTopPadding(), bottom = innerPadding.calculateBottomPadding())
+        ) {
+            if (!themeLoaded) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Default.Folder,
+                        contentDescription = "未添加项目",
+                        tint = colors.onSurface.copy(alpha=0.6f),
+                        modifier = Modifier.size(72.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "暂无项目",
+                        color = colors.onSurface.copy(alpha=0.6f),
+                        fontSize = 14.sp
+                    )
+                }
+            } else {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        top.yukonga.miuix.kmp.basic.Card(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = metadata.title.takeIf { it.isNotEmpty() } ?: "未命名",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = metadata.designer.takeIf { it.isNotEmpty() } ?: "未知设计师",
+                                    fontSize = 12.sp,
+                                    color = colors.onSurface.copy(alpha = 0.6f)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        top.yukonga.miuix.kmp.basic.TextButton(
+                                            text = "编辑信息",
+                                            onClick = onEditInfo
+                                        )
+                                        top.yukonga.miuix.kmp.basic.TextButton(
+                                            text = "删除",
+                                            onClick = onDelete
+                                        )
+                                    }
+                                    top.yukonga.miuix.kmp.basic.Button(
+                                        onClick = onEditIcons
+                                    ) {
+                                        top.yukonga.miuix.kmp.basic.Text(text = "编辑图标", color = Color.White)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun VisualConfigScreen(
     metadata: ThemeMetadata,
     projectType: ProjectType,
@@ -1666,8 +1854,10 @@ fun VisualConfigScreen(
     val colors = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
     val scrollBehavior = top.yukonga.miuix.kmp.basic.MiuixScrollBehavior()
     val isDark = top.yukonga.miuix.kmp.theme.LocalIsDarkTheme.current
-    val basicBgColor = if (isDark) androidx.compose.ui.graphics.Color(0xFF242424) else androidx.compose.ui.graphics.Color(0xFFFFFFFF)
     
+    val useBlur by viewModel.useBlur.collectAsState()
+    val blurBackdrop = rememberMiuixBlurBackdrop(useBlur)
+
     var titleText by remember(metadata) { mutableStateOf(metadata.title) }
     var authorText by remember(metadata) { mutableStateOf(metadata.author) }
     var designerText by remember(metadata) { mutableStateOf(metadata.designer) }
@@ -1681,6 +1871,8 @@ fun VisualConfigScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                modifier = Modifier.tsMiuixBlurEffect(blurBackdrop),
+                color = blurBackdrop.getMiuixAppBarColor(),
                 title = "信息编辑",
                 largeTitle = "信息编辑",
                 scrollBehavior = scrollBehavior,
@@ -1699,9 +1891,10 @@ fun VisualConfigScreen(
         },
         bottomBar = onBottomBar
     ) { innerPadding ->
-        Surface(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
+                .then(blurBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier)
                 .padding(top = innerPadding.calculateTopPadding(), bottom = innerPadding.calculateBottomPadding())
         ) {
             Column(
@@ -1720,31 +1913,22 @@ fun VisualConfigScreen(
                 )
                 
                 TabRow(
+                    tabs = listOf("小米 MTZ 主题包", "Magisk 图标模组"),
                     selectedTabIndex = if (projectType == ProjectType.MTZ) 0 else 1,
+                    onTabSelected = { index ->
+                        val selectedType = if (index == 0) ProjectType.MTZ else ProjectType.MAGISK_ZIP
+                        viewModel.loadTemplate(selectedType)
+                    },
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Tab(
-                        selected = projectType == ProjectType.MTZ,
-                        onClick = { viewModel.loadTemplate(ProjectType.MTZ) },
-                        text = { Text("小米 MTZ 主题包") }
-                    )
-                    Tab(
-                        selected = projectType == ProjectType.MAGISK_ZIP,
-                        onClick = { viewModel.loadTemplate(ProjectType.MAGISK_ZIP) },
-                        text = { Text("Magisk 图标模组") }
-                    )
-                }
+                )
 
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // Topic card 2: Metadata configurator Form
                 Text("编辑信息", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.onSurface, modifier = Modifier.padding(bottom = 8.dp))
 
-                top.yukonga.miuix.kmp.basic.Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp)),
-                    color = basicBgColor
+                top.yukonga.miuix.kmp.basic.Card(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         TextField(
@@ -1821,7 +2005,9 @@ fun VisualConfigScreen(
                         val endSuffix = if (projectType == ProjectType.MTZ) ".mtz" else ".zip"
                         onExport(finalId + endSuffix)
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1832,12 +2018,12 @@ fun VisualConfigScreen(
                             imageVector = Icons.Default.SaveAlt,
                             contentDescription = "Save and export",
                             tint = colors.onPrimary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         top.yukonga.miuix.kmp.basic.Text(
                             text = "保存并导出主题包 (${if (projectType == ProjectType.MTZ) ".mtz" else ".zip"})",
-                            fontSize = 13.sp,
+                            fontSize = 14.sp,
                             color = colors.onPrimary,
                             fontWeight = FontWeight.Bold
                         )
@@ -1850,16 +2036,69 @@ fun VisualConfigScreen(
 }
 
 @Composable
+fun NativeAppIcon(packageName: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var bitmap by remember(packageName) { mutableStateOf<ImageBitmap?>(null) }
+    val colors = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+
+    LaunchedEffect(packageName) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val pm = context.packageManager
+                val drawable = pm.getApplicationIcon(packageName)
+                val bmp = (drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                    ?: run {
+                        val newBmp = android.graphics.Bitmap.createBitmap(
+                            drawable.intrinsicWidth.takeIf { it > 0 } ?: 1,
+                            drawable.intrinsicHeight.takeIf { it > 0 } ?: 1,
+                            android.graphics.Bitmap.Config.ARGB_8888
+                        )
+                        val canvas = android.graphics.Canvas(newBmp)
+                        drawable.setBounds(0, 0, canvas.width, canvas.height)
+                        drawable.draw(canvas)
+                        newBmp
+                    }
+                bitmap = bmp.asImageBitmap()
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!,
+            contentDescription = packageName,
+            modifier = modifier,
+            contentScale = ContentScale.Fit
+        )
+    } else {
+        Icon(
+            imageVector = Icons.Default.Apps,
+            contentDescription = "默认",
+            tint = colors.onSurface.copy(alpha=0.6f),
+            modifier = modifier
+        )
+    }
+}
+
+@Composable
 fun SettingsScreen(
-    themeMode: Int,
-    onThemeModeChange: (Int) -> Unit,
-    onBottomBar: @Composable () -> Unit
+    onNavigateToAppearance: () -> Unit,
+    onNavigateToAbout: () -> Unit,
+    onBottomBar: @Composable () -> Unit,
+    viewModel: ThemeViewModel
 ) {
     val colors = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
     val scrollBehavior = top.yukonga.miuix.kmp.basic.MiuixScrollBehavior()
+    val useBlur by viewModel.useBlur.collectAsState()
+    val blurBackdrop = rememberMiuixBlurBackdrop(useBlur)
+
     Scaffold(
         topBar = {
             TopAppBar(
+                modifier = Modifier.tsMiuixBlurEffect(blurBackdrop),
+                color = blurBackdrop.getMiuixAppBarColor(),
                 title = "设置",
                 largeTitle = "设置",
                 scrollBehavior = scrollBehavior
@@ -1867,23 +2106,337 @@ fun SettingsScreen(
         },
         bottomBar = onBottomBar
     ) { innerPadding ->
-        Surface(
+        androidx.compose.foundation.lazy.LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = innerPadding.calculateTopPadding(), bottom = innerPadding.calculateBottomPadding())
+                .then(blurBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier)
+                .scrollEndHaptic()
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                top = innerPadding.calculateTopPadding(),
+                bottom = innerPadding.calculateBottomPadding()
+            ),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-            ) {
-                val options = listOf("跟随系统", "浅色模式", "深色模式")
-                OverlayDropdownPreference(
-                    title = "主题模式",
-                    items = options.mapIndexed { index, name -> DropdownEntry(name, index) },
-                    selectedIndex = themeMode,
-                    onSelectedIndexChange = onThemeModeChange
+            item { Spacer(modifier = Modifier.height(12.dp)) }
+
+            // --- 外观设置 ---
+            item {
+                top.yukonga.miuix.kmp.basic.SmallTitle("个性化")
+            }
+            item {
+                top.yukonga.miuix.kmp.basic.Card(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 12.dp)
+                ) {
+                    top.yukonga.miuix.kmp.preference.ArrowPreference(
+                        title = "主题设置",
+                        summary = "主题、模糊、色彩风格",
+                        onClick = onNavigateToAppearance
+                    )
+                }
+            }
+
+            // --- 其他 ---
+            item {
+                top.yukonga.miuix.kmp.basic.SmallTitle("其他")
+            }
+            item {
+                top.yukonga.miuix.kmp.basic.Card(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 12.dp)
+                ) {
+                    top.yukonga.miuix.kmp.preference.ArrowPreference(
+                        title = "关于",
+                        summary = "版本 1.0.0",
+                        onClick = onNavigateToAbout
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun AppearanceScreen(
+    viewModel: ThemeViewModel,
+    onBack: () -> Unit
+) {
+    val themeMode by viewModel.themeMode.collectAsState()
+    val useAppleFloatingBar by viewModel.useAppleFloatingBar.collectAsState()
+    val useBlur by viewModel.useBlur.collectAsState()
+    val useMiuixMonet by viewModel.useMiuixMonet.collectAsState()
+    val useDynamicColor by viewModel.useDynamicColor.collectAsState()
+    val paletteStyle by viewModel.paletteStyle.collectAsState()
+    val colorSpec by viewModel.colorSpec.collectAsState()
+    val seedColor by viewModel.seedColor.collectAsState()
+    var showThemeDropdown by remember { mutableStateOf(false) }
+
+    val colors = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+    val scrollBehavior = top.yukonga.miuix.kmp.basic.MiuixScrollBehavior()
+    val blurBackdrop = rememberMiuixBlurBackdrop(useBlur)
+    
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                modifier = Modifier.tsMiuixBlurEffect(blurBackdrop),
+                color = blurBackdrop.getMiuixAppBarColor(),
+                title = "主题设置",
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = colors.onSurface
+                        )
+                    }
+                },
+                scrollBehavior = scrollBehavior
+            )
+        }
+    ) { innerPadding ->
+        androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (blurBackdrop != null) Modifier.layerBackdrop(blurBackdrop) else Modifier)
+                .scrollEndHaptic()
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(top = innerPadding.calculateTopPadding()),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            item { Spacer(modifier = Modifier.height(12.dp)) }
+
+            item { top.yukonga.miuix.kmp.basic.SmallTitle("UI Style") }
+            item {
+                top.yukonga.miuix.kmp.basic.Card(
+                    modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)
+                ) {
+                    top.yukonga.miuix.kmp.preference.SwitchPreference(
+                        title = "Apple 悬浮底栏",
+                        checked = useAppleFloatingBar,
+                        onCheckedChange = { viewModel.setUseAppleFloatingBar(it) }
+                    )
+                }
+            }
+
+            item { top.yukonga.miuix.kmp.basic.SmallTitle("Miuix UI") }
+            item {
+                top.yukonga.miuix.kmp.basic.Card(
+                    modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)
+                ) {
+                    val themeOptions = listOf("跟随系统", "浅色模式", "深色模式")
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        top.yukonga.miuix.kmp.basic.BasicComponent(
+                            title = "主题模式",
+                            summary = themeOptions.getOrNull(themeMode) ?: "",
+                            onClick = { showThemeDropdown = true },
+                            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
+                        )
+                        OverlayListPopup(
+                            show = showThemeDropdown,
+                            alignment = PopupPositionProvider.Align.End,
+                            onDismissRequest = { showThemeDropdown = false }
+                        ) {
+                            ListPopupColumn {
+                                themeOptions.forEachIndexed { index, name ->
+                                    DropdownImpl(
+                                        text = name,
+                                        optionSize = themeOptions.size,
+                                        isSelected = themeMode == index,
+                                        index = index,
+                                        onSelectedIndexChange = {
+                                            viewModel.setThemeMode(index)
+                                            showThemeDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    top.yukonga.miuix.kmp.preference.SwitchPreference(
+                        title = "模糊效果",
+                        checked = useBlur,
+                        onCheckedChange = { viewModel.setUseBlur(it) }
+                    )
+                    top.yukonga.miuix.kmp.preference.SwitchPreference(
+                        title = "Miuix 自定义颜色",
+                        checked = useMiuixMonet,
+                        onCheckedChange = { viewModel.setUseMiuixMonet(it) }
+                    )
+
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = useMiuixMonet,
+                        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
+                    ) {
+                        Column {
+                            top.yukonga.miuix.kmp.preference.SwitchPreference(
+                                title = "动态颜色",
+                                checked = useDynamicColor,
+                                onCheckedChange = { viewModel.setUseDynamicColor(it) }
+                            )
+
+                            val paletteOptions = listOf("TonalSpot", "Neutral", "Vibrant", "Expressive")
+                            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
+                                title = "调色板样式",
+                                items = paletteOptions.mapIndexed { index, name -> top.yukonga.miuix.kmp.basic.DropdownEntry(name, index) },
+                                selectedIndex = paletteStyle,
+                                onSelectedIndexChange = { viewModel.setPaletteStyle(it) }
+                            )
+
+                            val specOptions = listOf("Spec2021", "Spec2025")
+                            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
+                                title = "颜色规格",
+                                items = specOptions.mapIndexed { index, name -> top.yukonga.miuix.kmp.basic.DropdownEntry(name, index) },
+                                selectedIndex = colorSpec,
+                                onSelectedIndexChange = { viewModel.setColorSpec(it) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = useMiuixMonet && !useDynamicColor,
+                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
+                ) {
+                    Column {
+                        top.yukonga.miuix.kmp.basic.SmallTitle("主题色选择")
+                        top.yukonga.miuix.kmp.basic.Card(
+                            modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                val presetColors = listOf(Color(0xFF007AFF), Color(0xFF34C759), Color(0xFFFF9500), Color(0xFFFF3B30), Color(0xFFAF52DE))
+                                presetColors.forEachIndexed { index, color ->
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(androidx.compose.foundation.shape.CircleShape)
+                                            .background(color)
+                                            .clickable { viewModel.setSeedColor(index) }
+                                            .then(
+                                                if (seedColor == index) Modifier.border(3.dp, colors.onSurface, androidx.compose.foundation.shape.CircleShape)
+                                                else Modifier
+                                            )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item { Spacer(modifier = Modifier.navigationBarsPadding()) }
+        }
+    }
+}
+
+@Composable
+fun AboutScreen(
+    onBack: () -> Unit,
+    viewModel: ThemeViewModel
+) {
+    val colors = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+    val scrollBehavior = top.yukonga.miuix.kmp.basic.MiuixScrollBehavior()
+    val useBlur by viewModel.useBlur.collectAsState()
+    val blurBackdrop = rememberMiuixBlurBackdrop(useBlur)
+    
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                modifier = Modifier.tsMiuixBlurEffect(blurBackdrop),
+                color = blurBackdrop.getMiuixAppBarColor(),
+                title = "关于",
+                navigationIcon = {
+                    top.yukonga.miuix.kmp.basic.IconButton(
+                        modifier = Modifier.padding(start = 12.dp, end = 12.dp),
+                        onClick = onBack
+                    ) {
+                        top.yukonga.miuix.kmp.basic.Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = colors.onSurface
+                        )
+                    }
+                },
+                scrollBehavior = scrollBehavior
+            )
+        }
+    ) { innerPadding ->
+        androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(blurBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier)
+                .scrollEndHaptic()
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(top = innerPadding.calculateTopPadding(), bottom = innerPadding.calculateBottomPadding()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            item { Spacer(modifier = Modifier.height(64.dp)) }
+            
+            // App Icon
+            item {
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(colors.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    top.yukonga.miuix.kmp.basic.Icon(
+                        imageVector = Icons.Default.Palette,
+                        contentDescription = "App Icon",
+                        modifier = Modifier.size(48.dp),
+                        tint = colors.primary
+                    )
+                }
+            }
+            
+            item { Spacer(modifier = Modifier.height(24.dp)) }
+            
+            item {
+                Text(
+                    text = "IconEdit",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface
                 )
+            }
+            
+            item { Spacer(modifier = Modifier.height(8.dp)) }
+            
+            item {
+                Text(
+                    text = "v1.0.0",
+                    fontSize = 14.sp,
+                    color = colors.onSurface.copy(alpha = 0.6f)
+                )
+            }
+
+            item { Spacer(modifier = Modifier.height(64.dp)) }
+
+            item {
+                top.yukonga.miuix.kmp.basic.Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    top.yukonga.miuix.kmp.preference.ArrowPreference(
+                        title = "源代码",
+                        onClick = {}
+                    )
+                }
             }
         }
     }

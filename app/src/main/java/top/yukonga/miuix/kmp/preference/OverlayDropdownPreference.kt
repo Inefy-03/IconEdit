@@ -30,54 +30,53 @@ fun OverlayDropdownPreference(
     val isDark = top.yukonga.miuix.kmp.theme.LocalIsDarkTheme.current
     val backgroundColor = if (isDark) Color(0xFF242424) else Color(0xFFFFFFFF)
 
-    Box {
-        top.yukonga.miuix.kmp.basic.Surface(
+    top.yukonga.miuix.kmp.basic.Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { showDialog = true },
+        color = backgroundColor
+    ) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .clickable { showDialog = true },
-            color = backgroundColor
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.onSurface
-                )
+            Text(
+                text = title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurface
+            )
+            Box(contentAlignment = Alignment.CenterEnd) {
                 Text(
                     text = items.getOrNull(selectedIndex)?.text ?: "",
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
-            }
-        }
-        
-        OverlayListPopup(
-            show = showDialog,
-            alignment = PopupPositionProvider.Align.Start,
-            onDismissRequest = { showDialog = false }
-        ) {
-            ListPopupColumn {
-                items.forEachIndexed { index, entry ->
-                    DropdownImpl(
-                        text = entry.text,
-                        optionSize = items.size,
-                        isSelected = selectedIndex == index,
-                        index = index,
-                        onSelectedIndexChange = {
-                            onSelectedIndexChange(index)
-                            showDialog = false
+                OverlayListPopup(
+                    show = showDialog,
+                    alignment = PopupPositionProvider.Align.TopEnd,
+                    onDismissRequest = { showDialog = false }
+                ) {
+                    ListPopupColumn {
+                        items.forEachIndexed { index, entry ->
+                            DropdownImpl(
+                                text = entry.text,
+                                optionSize = items.size,
+                                isSelected = selectedIndex == index,
+                                index = index,
+                                onSelectedIndexChange = {
+                                    onSelectedIndexChange(index)
+                                    showDialog = false
+                                }
+                            )
                         }
-                    )
+                    }
                 }
             }
         }

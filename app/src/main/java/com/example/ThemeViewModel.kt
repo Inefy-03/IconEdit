@@ -50,6 +50,9 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
     )
     val hasDeniedPermission = _hasDeniedPermission.asStateFlow()
 
+    private val _isAppsLoading = MutableStateFlow(false)
+    val isAppsLoading = _isAppsLoading.asStateFlow()
+
     private val _nativeApps = MutableStateFlow<List<IconItem>>(emptyList())
     val nativeApps = _nativeApps.asStateFlow()
 
@@ -64,6 +67,27 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
     
     private val _themeMode = MutableStateFlow(0) // 0: Auto, 1: Light, 2: Dark
     val themeMode = _themeMode.asStateFlow()
+
+    private val _useAppleFloatingBar = MutableStateFlow(false)
+    val useAppleFloatingBar = _useAppleFloatingBar.asStateFlow()
+
+    private val _useBlur = MutableStateFlow(false)
+    val useBlur = _useBlur.asStateFlow()
+
+    private val _useMiuixMonet = MutableStateFlow(false)
+    val useMiuixMonet = _useMiuixMonet.asStateFlow()
+
+    private val _useDynamicColor = MutableStateFlow(false)
+    val useDynamicColor = _useDynamicColor.asStateFlow()
+
+    private val _paletteStyle = MutableStateFlow(0)
+    val paletteStyle = _paletteStyle.asStateFlow()
+
+    private val _colorSpec = MutableStateFlow(0)
+    val colorSpec = _colorSpec.asStateFlow()
+
+    private val _seedColor = MutableStateFlow(0)
+    val seedColor = _seedColor.asStateFlow()
 
     private val _wallpaperBytes = MutableStateFlow<ByteArray?>(null)
     val wallpaperBytes = _wallpaperBytes.asStateFlow()
@@ -96,6 +120,28 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("has_denied_permission", denied).apply()
     }
 
+    private fun loadAppsInternal(forceRefresh: Boolean) {
+        viewModelScope.launch {
+            _isAppsLoading.value = true
+            try {
+                val apps = repository.loadInstalledApps(forceRefresh = forceRefresh)
+                _nativeApps.value = apps
+                if (apps.isNotEmpty()) {
+                    _hasAppListPermission.value = true
+                    _hasDeniedPermission.value = false
+                    prefs.edit()
+                        .putBoolean("has_app_list_permission", true)
+                        .putBoolean("has_denied_permission", false)
+                        .apply()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                _isAppsLoading.value = false
+            }
+        }
+    }
+
     fun updatePermissionStateFromSystem(context: android.content.Context, isGranted: Boolean, forceRefresh: Boolean = false) {
         _hasAppListPermission.value = isGranted
         prefs.edit().putBoolean("has_app_list_permission", isGranted).apply()
@@ -103,14 +149,8 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
         if (isGranted) {
             _hasDeniedPermission.value = false
             prefs.edit().putBoolean("has_denied_permission", false).apply()
-            viewModelScope.launch {
-                _nativeApps.value = repository.loadInstalledApps(forceRefresh = forceRefresh)
-            }
-        } else {
-            viewModelScope.launch {
-                _nativeApps.value = repository.loadInstalledApps(forceRefresh = forceRefresh)
-            }
         }
+        loadAppsInternal(forceRefresh = forceRefresh)
     }
 
     fun grantAppListPermission(granted: Boolean) {
@@ -119,12 +159,11 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
         if (granted) {
             _hasDeniedPermission.value = false
             prefs.edit().putBoolean("has_denied_permission", false).apply()
-            viewModelScope.launch {
-                _nativeApps.value = repository.loadInstalledApps(forceRefresh = true)
-            }
+            loadAppsInternal(forceRefresh = true)
         } else {
             _hasDeniedPermission.value = true
             prefs.edit().putBoolean("has_denied_permission", true).apply()
+            loadAppsInternal(forceRefresh = true)
         }
     }
 
@@ -163,6 +202,34 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setThemeMode(mode: Int) {
         _themeMode.value = mode
+    }
+
+    fun setUseAppleFloatingBar(use: Boolean) {
+        _useAppleFloatingBar.value = use
+    }
+
+    fun setUseBlur(use: Boolean) {
+        _useBlur.value = use
+    }
+
+    fun setUseMiuixMonet(use: Boolean) {
+        _useMiuixMonet.value = use
+    }
+
+    fun setUseDynamicColor(use: Boolean) {
+        _useDynamicColor.value = use
+    }
+
+    fun setPaletteStyle(style: Int) {
+        _paletteStyle.value = style
+    }
+
+    fun setColorSpec(spec: Int) {
+        _colorSpec.value = spec
+    }
+
+    fun setSeedColor(color: Int) {
+        _seedColor.value = color
     }
 
     fun toggleSystemApps(show: Boolean) {

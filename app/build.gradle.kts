@@ -12,7 +12,7 @@ android {
 
   defaultConfig {
     applicationId = "com.bocchi.iconedit"
-    minSdk = 26
+    minSdk = 32
     targetSdk = 37
     versionCode = 1
     versionName = "1.0"
@@ -71,6 +71,7 @@ dependencies {
   implementation(libs.miuix.core)
   implementation(libs.miuix.ui)
   implementation(libs.miuix.preference)
+  implementation(libs.miuix.blur)
   implementation("org.jetbrains.androidx.navigationevent:navigationevent-compose:1.0.1")
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
